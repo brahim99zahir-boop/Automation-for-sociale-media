@@ -1,0 +1,1245 @@
+{
+  "name": "01 - Comment Reply Engine",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Schedule: Poll YouTube",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t2",
+      "name": "From Meta Webhook Router",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "platform"
+            },
+            {
+              "name": "commentId"
+            },
+            {
+              "name": "text"
+            },
+            {
+              "name": "authorName"
+            },
+            {
+              "name": "postId"
+            }
+          ]
+        }
+      },
+      "notes": "Called by 02-meta-webhook-router.json's Execute Workflow node with one normalized IG/FB comment."
+    },
+    {
+      "id": "t3",
+      "name": "Telegram: Approval Callback",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_IN_UI",
+          "name": "Telegram bot (comment-reply)"
+        }
+      }
+    },
+    {
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        260,
+        200
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "channelId",
+              "type": "string",
+              "value": "REPLACE_WITH_YOUTUBE_CHANNEL_ID"
+            },
+            {
+              "id": "a2",
+              "name": "igUserId",
+              "type": "string",
+              "value": "REPLACE_WITH_IG_USER_ID"
+            },
+            {
+              "id": "a3",
+              "name": "fbPageId",
+              "type": "string",
+              "value": "REPLACE_WITH_FB_PAGE_ID"
+            },
+            {
+              "id": "a4",
+              "name": "telegramChatId",
+              "type": "string",
+              "value": "REPLACE_WITH_TELEGRAM_CHAT_ID"
+            },
+            {
+              "id": "a5",
+              "name": "systemPrompt",
+              "type": "string",
+              "value": "REPLACE_WITH_SYSTEM_PROMPT_TXT_CONTENTS"
+            }
+          ]
+        },
+        "options": {},
+        "includeOtherFields": true
+      },
+      "notes": "Single source of truth for the 4 IDs + system prompt. Phase 4 of GUIDE.md patches these 5 values via the n8n REST API. keepOnlySet is off (see options) so each entry's own fields (schedule/webhook/telegram payload) pass through untouched."
+    },
+    {
+      "id": "router",
+      "name": "Route By Entry",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        480,
+        200
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.callback_query }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Approval Callback"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "exists"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Comment Ready For AI"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      },
+      "notes": "3 outputs: has callback_query -> approval flow; has platform (came from Meta router) -> straight to AI; fallback (neither) -> came from the Schedule Trigger, go fetch YouTube comments."
+    },
+    {
+      "id": "yt_list",
+      "name": "YouTube: List Comment Threads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        500
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/youtube/v3/commentThreads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "allThreadsRelatedToChannelId",
+              "value": "={{ $('Config').item.json.channelId }}"
+            },
+            {
+              "name": "order",
+              "value": "time"
+            },
+            {
+              "name": "maxResults",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "REPLACE_IN_UI",
+          "name": "YouTube OAuth2 account"
+        }
+      }
+    },
+    {
+      "id": "yt_split",
+      "name": "Split Comment Items",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        960,
+        500
+      ],
+      "parameters": {
+        "fieldToSplitOut": "items"
+      }
+    },
+    {
+      "id": "yt_dedup",
+      "name": "Claim New Comment (dedup)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1180,
+        500
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO yt_seen_comments (comment_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING comment_id",
+        "options": {
+          "queryReplacement": "={{ [$json.snippet.topLevelComment.id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_IN_UI",
+          "name": "Postgres (n8n stack)"
+        }
+      },
+      "notes": "Atomic claim: if this INSERT returns a row, the comment is genuinely new (not seen by a prior poll)."
+    },
+    {
+      "id": "yt_isnew",
+      "name": "Is Genuinely New?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        500
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.comment_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "yt_normalize",
+      "name": "Normalize: YouTube Comment",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1620,
+        440
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "platform",
+              "type": "string",
+              "value": "youtube"
+            },
+            {
+              "id": "b2",
+              "name": "commentId",
+              "type": "string",
+              "value": "={{ $('Claim New Comment (dedup)').item.json.comment_id }}"
+            },
+            {
+              "id": "b3",
+              "name": "text",
+              "type": "string",
+              "value": "={{ $('Split Comment Items').item.json.snippet.topLevelComment.snippet.textOriginal }}"
+            },
+            {
+              "id": "b4",
+              "name": "authorName",
+              "type": "string",
+              "value": "={{ $('Split Comment Items').item.json.snippet.topLevelComment.snippet.authorDisplayName }}"
+            },
+            {
+              "id": "b5",
+              "name": "postId",
+              "type": "string",
+              "value": "={{ $('Split Comment Items').item.json.snippet.videoId }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "normalized",
+      "name": "Normalized Comment",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        300
+      ],
+      "parameters": {},
+      "notes": "Convergence point for the YouTube branch and the Meta-router branch. Downstream nodes reference $('Normalized Comment').item.json.x regardless of which entry fired."
+    },
+    {
+      "id": "claude",
+      "name": "Claude: Generate Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"claude-haiku-4-5\",\n  max_tokens: 300,\n  system: $('Config').item.json.systemPrompt,\n  messages: [ { role: \"user\", content: $('Normalized Comment').item.json.text } ]\n}) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_IN_UI",
+          "name": "Anthropic API (x-api-key header)"
+        }
+      },
+      "notes": "Generic Header Auth credential: header name 'x-api-key', value = your Anthropic API key. See GUIDE.md Phase 3."
+    },
+    {
+      "id": "parse",
+      "name": "Parse AI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const raw = $json.content[0].text;\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  // Model didn't return clean JSON -- fail safe to human review rather than guess.\n  parsed = { reply: '', needs_human: true, parse_error: raw };\n}\nreturn { json: { ...$json, reply: parsed.reply, needs_human: parsed.needs_human === true } };"
+      }
+    },
+    {
+      "id": "needshuman",
+      "name": "Needs Human Review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_human }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "insert_pending",
+      "name": "Insert Pending Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2720,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pending_reviews (platform, comment_id, post_id, draft_reply) VALUES ($1, $2, $3, $4) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$('Normalized Comment').item.json.platform, $('Normalized Comment').item.json.commentId, $('Normalized Comment').item.json.postId, $json.reply] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_IN_UI",
+          "name": "Postgres (n8n stack)"
+        }
+      }
+    },
+    {
+      "id": "send_approval",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2940,
+        200
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('Config').item.json.telegramChatId }}",
+        "text": "=New comment from {{ $('Normalized Comment').item.json.authorName }} ({{ $('Normalized Comment').item.json.platform }}):\n\n\"{{ $('Normalized Comment').item.json.text }}\"\n\nDraft reply:\n\"{{ $('Insert Pending Review').item.json.reply || $json.reply }}\"",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "Approve",
+                    "additionalFields": {
+                      "callback_data": "=approve:{{ $('Insert Pending Review').item.json.id }}"
+                    }
+                  },
+                  {
+                    "text": "Reject",
+                    "additionalFields": {
+                      "callback_data": "=reject:{{ $('Insert Pending Review').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_IN_UI",
+          "name": "Telegram bot (comment-reply)"
+        }
+      },
+      "notes": "Execution ends here for the auto-detected-sensitive path. It resumes independently via the 'Telegram: Approval Callback' trigger when the human taps a button -- see GUIDE.md's note on why this uses a callback trigger instead of a Wait node."
+    },
+    {
+      "id": "parse_cb",
+      "name": "Parse Callback Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        620
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const data = $json.callback_query.data; // e.g. 'approve:<uuid>'\nconst [action, reviewId] = data.split(':');\nreturn { json: { ...$json, action, reviewId } };"
+      }
+    },
+    {
+      "id": "fetch_pending",
+      "name": "Fetch Pending Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        620
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM pending_reviews WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [$json.reviewId] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_IN_UI",
+          "name": "Postgres (n8n stack)"
+        }
+      }
+    },
+    {
+      "id": "approved",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        620
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Parse Callback Data').item.json.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize_approved",
+      "name": "Normalize: Approved Review",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        920,
+        560
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "platform",
+              "type": "string",
+              "value": "={{ $('Fetch Pending Review').item.json.platform }}"
+            },
+            {
+              "id": "c2",
+              "name": "commentId",
+              "type": "string",
+              "value": "={{ $('Fetch Pending Review').item.json.comment_id }}"
+            },
+            {
+              "id": "c3",
+              "name": "postId",
+              "type": "string",
+              "value": "={{ $('Fetch Pending Review').item.json.post_id }}"
+            },
+            {
+              "id": "c4",
+              "name": "reply",
+              "type": "string",
+              "value": "={{ $('Fetch Pending Review').item.json.draft_reply }}"
+            },
+            {
+              "id": "c5",
+              "name": "reviewId",
+              "type": "string",
+              "value": "={{ $('Fetch Pending Review').item.json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mark_rejected",
+      "name": "Mark Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        920,
+        720
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pending_reviews SET status = 'rejected' WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [$('Parse Callback Data').item.json.reviewId] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_IN_UI",
+          "name": "Postgres (n8n stack)"
+        }
+      }
+    },
+    {
+      "id": "confirm_rejected",
+      "name": "Confirm Rejected",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1140,
+        720
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "editMessageText",
+        "chatId": "={{ $('Parse Callback Data').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Parse Callback Data').item.json.callback_query.message.message_id }}",
+        "text": "=Rejected -- nothing was posted.\n\n{{ $('Parse Callback Data').item.json.callback_query.message.text }}"
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_IN_UI",
+          "name": "Telegram bot (comment-reply)"
+        }
+      }
+    },
+    {
+      "id": "ready",
+      "name": "Ready To Post",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        380
+      ],
+      "parameters": {},
+      "notes": "Convergence: auto-approved (needs_human=false) replies AND human-approved replies both land here."
+    },
+    {
+      "id": "platform_switch",
+      "name": "Route By Platform",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1380,
+        380
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform }}",
+                    "rightValue": "youtube",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "YouTube"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ ['instagram','facebook'].includes($json.platform) }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Meta (IG/FB)"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "yt_post",
+      "name": "YouTube: Post Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/youtube/v3/comments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ snippet: { parentId: $json.commentId, textOriginal: $json.reply } }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "REPLACE_IN_UI",
+          "name": "YouTube OAuth2 account"
+        }
+      }
+    },
+    {
+      "id": "meta_post",
+      "name": "Meta: Post Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        460
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $json.commentId + '/replies' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "={{ $json.reply }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "REPLACE_IN_UI",
+          "name": "Meta Graph API token"
+        }
+      },
+      "notes": "Query Auth credential: parameter name 'access_token', value = your long-lived Page/System User token. Works for both Instagram and Facebook comment replies -- both are Graph API comment IDs."
+    },
+    {
+      "id": "posted",
+      "name": "Posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        380
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "came_from_approval",
+      "name": "Came From Approval?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2080,
+        380
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.reviewId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mark_posted",
+      "name": "Mark Posted",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2300,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pending_reviews SET status = 'posted' WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [$json.reviewId] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_IN_UI",
+          "name": "Postgres (n8n stack)"
+        }
+      }
+    },
+    {
+      "id": "confirm_posted",
+      "name": "Confirm Posted",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2520,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "editMessageText",
+        "chatId": "={{ $('Parse Callback Data').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Parse Callback Data').item.json.callback_query.message.message_id }}",
+        "text": "=Posted live: \"{{ $json.reply }}\""
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_IN_UI",
+          "name": "Telegram bot (comment-reply)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Poll YouTube": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "From Meta Webhook Router": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Approval Callback": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Route By Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Entry": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalized Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "YouTube: List Comment Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: List Comment Threads": {
+      "main": [
+        [
+          {
+            "node": "Split Comment Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Comment Items": {
+      "main": [
+        [
+          {
+            "node": "Claim New Comment (dedup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim New Comment (dedup)": {
+      "main": [
+        [
+          {
+            "node": "Is Genuinely New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Genuinely New?": {
+      "main": [
+        [
+          {
+            "node": "Normalize: YouTube Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Normalize: YouTube Comment": {
+      "main": [
+        [
+          {
+            "node": "Normalized Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalized Comment": {
+      "main": [
+        [
+          {
+            "node": "Claude: Generate Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: Generate Reply": {
+      "main": [
+        [
+          {
+            "node": "Parse AI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI JSON": {
+      "main": [
+        [
+          {
+            "node": "Needs Human Review?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Human Review?": {
+      "main": [
+        [
+          {
+            "node": "Insert Pending Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ready To Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Pending Review": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch Pending Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pending Review": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Normalize: Approved Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize: Approved Review": {
+      "main": [
+        [
+          {
+            "node": "Ready To Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rejected": {
+      "main": [
+        [
+          {
+            "node": "Confirm Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ready To Post": {
+      "main": [
+        [
+          {
+            "node": "Route By Platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Platform": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Post Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meta: Post Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Post Reply": {
+      "main": [
+        [
+          {
+            "node": "Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta: Post Reply": {
+      "main": [
+        [
+          {
+            "node": "Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posted": {
+      "main": [
+        [
+          {
+            "node": "Came From Approval?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Came From Approval?": {
+      "main": [
+        [
+          {
+            "node": "Mark Posted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Mark Posted": {
+      "main": [
+        [
+          {
+            "node": "Confirm Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_03_ERROR_HANDLER_WORKFLOW_ID"
+  }
+}
