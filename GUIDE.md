@@ -59,18 +59,18 @@ VPS — no server, Docker, domain, or SSH needed. Here's what's left:
    | Table name | Columns |
    |---|---|
    | `yt_seen_comments` | `comment_id` (string) |
-   | `pending_reviews` | `platform` (string), `comment_id` (string), `post_id` (string), `draft_reply` (string), `status` (string) |
-   | `yt_poll_state` | `channel_id` (string), `last_checked_at` (string) — not currently used by a node, kept for a future rate-limit/pagination improvement; safe to skip for now |
+
+   (Only one table now — the approval queue that previously needed a `pending_reviews` table
+   was replaced by n8n's built-in email-approval feature, which pauses the execution itself.)
 
    Data Tables auto-generate their own `id` column, so you don't need to add one.
-5. When you open the imported workflow, a few **Data Table nodes will show a config warning**
-   (`Filter: Not Already Seen`, `Mark As Seen`, `Insert Pending Review`, `Fetch Pending Review`,
-   `Mark Rejected`, `Mark Posted`) — this is expected. Each one's "notes" field explains what to
-   re-check: reselect the actual table from the dropdown (I could only pre-fill it by name, not
-   by its real internal ID) and confirm the column mapping looks right. I couldn't fully verify
-   n8n's exact Data Table parameter schema from documentation alone, so treat these six nodes as
-   a solid starting scaffold, not a guaranteed drop-in — the master prompt's own rule applies
-   here too: validate → verify wiring → test → only then activate.
+5. When you open the imported workflow, the **Data Table nodes will show a config warning**
+   (`Filter: Not Already Seen`, `Mark As Seen`) — this is expected. Reselect the actual table
+   from the dropdown (I could only pre-fill it by name, not by its real internal ID) and
+   confirm the column mapping. Same for the **Google Sheets nodes** (`Log To Google Sheets`,
+   `Log: Rejected`) and the **email nodes** (`Email: Ask Approval`, `Send Error Alert`) — pick
+   the credential and spreadsheet from the dropdowns after import. Treat these as solid
+   scaffolds, not guaranteed drop-ins — validate → verify wiring → test → only then activate.
 
 ### 3. Three "confirm with the business owner" gaps in the FAQ
 
@@ -80,40 +80,64 @@ so I marked them "confirm with the business owner" rather than inventing numbers
 you fill those in, the workflows are wired to route any question touching those three topics
 to human review instead of auto-answering.
 
-### 4. Telegram bot needs finishing
+### 4. Approvals & alerts come by EMAIL (Telegram was dropped)
 
-You said you already created a bot via @BotFather but don't know the rest. Here's exactly
-what's left:
+The owner decided against Telegram. Instead, the workflows use n8n's built-in
+**email approval**: when a comment needs human review, an email arrives at
+**brahim99zahir@gmail.com** with the comment, the AI's draft reply, the client type, and
+**Approve / Disapprove buttons**. Clicking Approve posts the reply; Disapprove logs it as
+rejected and posts nothing. Error alerts also arrive by email.
 
-1. In your BotFather chat, find the token it gave you when you ran `/newbot` (a string like
-   `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`). If you don't have it anymore, message
-   @BotFather → `/mybots` → your bot → **API Token**.
-2. Open a chat with your own bot (search its @username) and send it any message — bots can't
-   message you first.
-3. Fetch your chat ID: open this URL in a browser (replace `<TOKEN>`):
-   `https://api.telegram.org/bot<TOKEN>/getUpdates`. Look for `"chat":{"id": ...}` in the
-   response — that number is your `telegramChatId`.
-4. Give me the token (for the n8n Telegram credential) and the chat ID (goes into the
-   workflows' Config node) when you have them.
+What you need for this: a **Gmail App Password** (n8n sends the emails through your own
+Gmail via SMTP):
 
-### 5. Accounts only you can create
+1. Your Google account needs 2-Step Verification on: https://myaccount.google.com/security
+2. Then create an App Password: https://myaccount.google.com/apppasswords — name it "n8n",
+   copy the 16-character password it shows.
+3. In n8n: **Credentials → Add credential → SMTP** —
+   Host: `smtp.gmail.com`, Port: `465`, SSL/TLS: on,
+   User: `brahim99zahir@gmail.com`, Password: the 16-character app password.
+4. Select this credential on the `Email: Ask Approval` node (workflow 1) and the
+   `Send Error Alert` node (workflow 3).
 
-Anthropic API key, Google Cloud OAuth (for YouTube), and a Meta developer app (for
-Instagram/Facebook) all need your personal login/browser. Once you have a VPS and the n8n
-instance is live, I'll give you exact click-by-click steps for each and verify each one with
-a real API call before we move on — see `CLAUDE-CODE-MASTER-PROMPT.md` Phase 3.
+### 5. Google Sheets client log (in Arabic)
+
+Every processed comment is logged to a Google Sheet with the client classified in Arabic
+(نوع العميل: مهتم بالشراء / سؤال عن الثمن / استفسار عن التوصيل / شكوى / زبون سعيد / سؤال
+عام / أخرى).
+
+1. Create a Google Sheet (e.g. named **عملاء فيها خير**) with these headers in row 1,
+   columns A→G:
+   `التاريخ` | `المنصة` | `اسم العميل` | `التعليق` | `نوع العميل` | `الرد` | `الحالة`
+2. In n8n: **Credentials → Add credential → Google Sheets OAuth2 API** — this needs a Google
+   Cloud project (console.cloud.google.com → new project → enable **Google Sheets API** →
+   OAuth consent screen → OAuth Client ID (Web application) → paste n8n's redirect URI from
+   the credential screen → connect with your Google account). I'll walk you through it
+   click-by-click when you're there.
+3. Select the credential + your spreadsheet + sheet on the `Log To Google Sheets` and
+   `Log: Rejected` nodes.
+
+The `الحالة` column records: "تم الرد تلقائيًا" (auto-replied), "تمت الموافقة يدويًا"
+(approved by you), or "مرفوض — لم يُنشر" (rejected, nothing posted).
+
+### 6. Accounts only you can create
+
+Meta developer app (for Instagram/Facebook) still needs your personal login/browser — I'll
+give exact click-by-click steps when the n8n side is done. Anthropic is ✅ done (key verified
+2026-07-24). Google Cloud OAuth is needed for the Sheets credential above (and for YouTube
+later, if you ever add a channel).
 
 ## The order to actually do things in
 
 1. Answer the voice-profile authorship question (§1 above) and send more real samples if
    needed — this can happen anytime, in parallel with everything else.
-2. Fill in the 3 FAQ gaps in `3-workflows/product-faq.md` (§3) whenever you have the answers.
-3. Get the Telegram bot token + chat ID (§4) — takes 5 minutes, no cost.
-4. Sign up for n8n Cloud, create the 3 Data Tables, create an API key, send it to me (§2) —
-   I'll import and wire up the 3 workflows.
-5. Then the account setup (Anthropic/YouTube/Meta) and the test gates in
-   `CLAUDE-CODE-MASTER-PROMPT.md` Phase 5 — nothing posts publicly without your explicit OK
-   on the first real test, per the non-negotiable rules at the top of that file.
+2. Fill in the remaining FAQ gaps (§3): payment method, delivery time, guarantees.
+3. Sign up for n8n Cloud, import the 3 workflows, create the `yt_seen_comments` Data Table (§2).
+4. Create the Gmail App Password + SMTP credential for email approvals (§4).
+5. Create the Arabic client-log spreadsheet + Google Sheets credential (§5).
+6. Then the Meta developer app (§6) and the test gates in `CLAUDE-CODE-MASTER-PROMPT.md`
+   Phase 5 — nothing posts publicly without your explicit OK on the first real test, per the
+   non-negotiable rules at the top of that file.
 
 ## Budget check
 
@@ -125,20 +149,22 @@ other paid services are used anywhere in this package.
 
 ## A note on how the n8n workflows are wired (for when you're reviewing them)
 
-- `01-comment-reply-engine.json` has 3 entry points that all converge on shared logic: a
-  Schedule Trigger polls YouTube (no comment webhook exists for YouTube), an Execute Workflow
-  trigger receives normalized Instagram/Facebook events from workflow 2, and a Telegram
-  Trigger listens for your Approve/Reject button taps. A single **Config** node near the top
-  holds the 4 IDs (`channelId`, `igUserId`, `fbPageId`, `telegramChatId`) and the full system
-  prompt — that's the one place Phase 4 patches with your real values.
-- Sensitive comments don't use n8n's `Wait` node (that would hold an execution open
-  indefinitely, which is fragile across restarts) — instead the draft is saved to a Data
-  Table and the Telegram approval button's callback starts a fresh, independent execution that
-  finishes the job. This is the standard n8n human-in-the-loop pattern.
+- `01-comment-reply-engine.json` has 2 entry points that converge on shared logic: a
+  Schedule Trigger polls YouTube (no comment webhook exists for YouTube; dormant until a
+  channel is configured), and an Execute Workflow trigger receives normalized
+  Instagram/Facebook events from workflow 2. A single **Config** node near the top holds the
+  platform IDs, the approval email, and the full system prompt — the one place to update
+  with real values.
+- The AI classifies every commenter (`client_type`, in Arabic) as well as drafting the reply.
+  Sensitive comments (`needs_human: true`) go through n8n's built-in **email approval**: the
+  execution pauses (n8n persists waiting executions — they survive restarts), an email with
+  Approve/Disapprove buttons arrives, and the click resumes the same execution. Approved →
+  posts the reply; disapproved → logs as rejected, posts nothing.
+- Every outcome is appended to the Arabic Google Sheet (§5): auto-replied, approved, or
+  rejected.
 - `02-meta-webhook-router.json` handles both the one-time GET verification challenge Meta
   sends and the ongoing POST events for both Instagram and Facebook (they share one webhook).
 - `03-error-handler.json` is wired as both other workflows' error workflow — any node failure
-  anywhere sends you a Telegram alert with the workflow name, failing node, and error message.
-- Two n8n Data Tables back this (create them in the n8n Cloud UI per §2 above):
-  `yt_seen_comments` (dedup for YouTube polling) and `pending_reviews` (the human-approval
-  queue). No external database needed — this is n8n Cloud's built-in structured storage.
+  anywhere sends an email alert with the workflow name, failing node, and error message.
+- One n8n Data Table backs the YouTube dedup (`yt_seen_comments`, per §2). No external
+  database needed.

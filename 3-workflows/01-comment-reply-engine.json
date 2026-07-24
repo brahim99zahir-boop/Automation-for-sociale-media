@@ -54,27 +54,6 @@
       "notes": "Called by 02-meta-webhook-router.json's Execute Workflow node with one normalized IG/FB comment."
     },
     {
-      "id": "t3",
-      "name": "Telegram: Approval Callback",
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.1,
-      "position": [
-        0,
-        400
-      ],
-      "parameters": {
-        "updates": [
-          "callback_query"
-        ]
-      },
-      "credentials": {
-        "telegramApi": {
-          "id": "REPLACE_IN_UI",
-          "name": "Telegram bot (comment-reply)"
-        }
-      }
-    },
-    {
       "id": "config",
       "name": "Config",
       "type": "n8n-nodes-base.set",
@@ -108,9 +87,9 @@
             },
             {
               "id": "a4",
-              "name": "telegramChatId",
+              "name": "approvalEmail",
               "type": "string",
-              "value": "REPLACE_WITH_TELEGRAM_CHAT_ID"
+              "value": "brahim99zahir@gmail.com"
             },
             {
               "id": "a5",
@@ -123,7 +102,7 @@
         "options": {},
         "includeOtherFields": true
       },
-      "notes": "Single source of truth for the 4 IDs + system prompt. Phase 4 of GUIDE.md patches these 5 values via the n8n REST API. keepOnlySet is off (see options) so each entry's own fields (schedule/webhook/telegram payload) pass through untouched."
+      "notes": "Single source of truth for the IDs, the approval email, and the system prompt. Update these values here (or via the n8n REST API on a paid plan) -- every other node references them by name."
     },
     {
       "id": "router",
@@ -137,27 +116,6 @@
       "parameters": {
         "rules": {
           "values": [
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "typeValidation": "loose"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.callback_query }}",
-                    "rightValue": "",
-                    "operator": {
-                      "type": "object",
-                      "operation": "exists"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "Approval Callback"
-            },
             {
               "conditions": {
                 "options": {
@@ -184,7 +142,7 @@
         "fallbackOutput": "extra",
         "options": {}
       },
-      "notes": "3 outputs: has callback_query -> approval flow; has platform (came from Meta router) -> straight to AI; fallback (neither) -> came from the Schedule Trigger, go fetch YouTube comments."
+      "notes": "2 outputs: has platform (came from Meta router) -> straight to AI; fallback (came from the Schedule Trigger) -> go fetch YouTube comments."
     },
     {
       "id": "yt_list",
@@ -389,7 +347,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: \"claude-haiku-4-5\",\n  max_tokens: 300,\n  system: $('Config').item.json.systemPrompt,\n  messages: [ { role: \"user\", content: $('Normalized Comment').item.json.text } ]\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"claude-haiku-4-5\",\n  max_tokens: 400,\n  system: $('Config').item.json.systemPrompt,\n  messages: [ { role: \"user\", content: $('Normalized Comment').item.json.text } ]\n}) }}",
         "options": {}
       },
       "credentials": {
@@ -412,7 +370,7 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "const raw = $json.content[0].text;\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  // Model didn't return clean JSON -- fail safe to human review rather than guess.\n  parsed = { reply: '', needs_human: true, parse_error: raw };\n}\nreturn { json: { ...$json, reply: parsed.reply, needs_human: parsed.needs_human === true } };"
+        "jsCode": "const raw = $json.content[0].text;\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  // Model didn't return clean JSON -- fail safe to human review rather than guess.\n  parsed = { reply: '', needs_human: true, client_type: 'غير محدد', parse_error: raw };\n}\nreturn { json: { ...$json, reply: parsed.reply, needs_human: parsed.needs_human === true,\n  client_type: parsed.client_type || 'غير محدد' } };"
       }
     },
     {
@@ -443,267 +401,6 @@
           "combinator": "and"
         },
         "options": {}
-      }
-    },
-    {
-      "id": "insert_pending",
-      "name": "Insert Pending Review",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1,
-      "position": [
-        2720,
-        200
-      ],
-      "parameters": {
-        "resource": "row",
-        "operation": "insert",
-        "dataTableId": {
-          "__rl": true,
-          "mode": "name",
-          "value": "pending_reviews"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "platform": "={{ $('Normalized Comment').item.json.platform }}",
-            "comment_id": "={{ $('Normalized Comment').item.json.commentId }}",
-            "post_id": "={{ $('Normalized Comment').item.json.postId }}",
-            "draft_reply": "={{ $json.reply }}",
-            "status": "pending"
-          },
-          "matchingColumns": []
-        }
-      },
-      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix. Expects the Insert operation to return the created row including its auto id -- referenced downstream as $('Insert Pending Review').item.json.id. Confirm that's the actual output shape after import; Data Tables auto-generate an id column per n8n's docs."
-    },
-    {
-      "id": "send_approval",
-      "name": "Send Approval Request",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        2940,
-        200
-      ],
-      "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "chatId": "={{ $('Config').item.json.telegramChatId }}",
-        "text": "=New comment from {{ $('Normalized Comment').item.json.authorName }} ({{ $('Normalized Comment').item.json.platform }}):\n\n\"{{ $('Normalized Comment').item.json.text }}\"\n\nDraft reply:\n\"{{ $('Insert Pending Review').item.json.reply || $json.reply }}\"",
-        "replyMarkup": "inlineKeyboard",
-        "inlineKeyboard": {
-          "rows": [
-            {
-              "row": {
-                "buttons": [
-                  {
-                    "text": "Approve",
-                    "additionalFields": {
-                      "callback_data": "=approve:{{ $('Insert Pending Review').item.json.id }}"
-                    }
-                  },
-                  {
-                    "text": "Reject",
-                    "additionalFields": {
-                      "callback_data": "=reject:{{ $('Insert Pending Review').item.json.id }}"
-                    }
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        "additionalFields": {}
-      },
-      "credentials": {
-        "telegramApi": {
-          "id": "REPLACE_IN_UI",
-          "name": "Telegram bot (comment-reply)"
-        }
-      },
-      "notes": "Execution ends here for the auto-detected-sensitive path. It resumes independently via the 'Telegram: Approval Callback' trigger when the human taps a button -- see GUIDE.md's note on why this uses a callback trigger instead of a Wait node."
-    },
-    {
-      "id": "parse_cb",
-      "name": "Parse Callback Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        260,
-        620
-      ],
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "language": "javaScript",
-        "jsCode": "const data = $json.callback_query.data; // e.g. 'approve:<uuid>'\nconst [action, reviewId] = data.split(':');\nreturn { json: { ...$json, action, reviewId } };"
-      }
-    },
-    {
-      "id": "fetch_pending",
-      "name": "Fetch Pending Review",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1,
-      "position": [
-        480,
-        620
-      ],
-      "parameters": {
-        "resource": "row",
-        "operation": "get",
-        "dataTableId": {
-          "__rl": true,
-          "mode": "name",
-          "value": "pending_reviews"
-        },
-        "filters": {
-          "conditions": [
-            {
-              "keyName": "id",
-              "condition": "eq",
-              "keyValue": "={{ $json.reviewId }}"
-            }
-          ],
-          "matchType": "allFilters"
-        }
-      },
-      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
-    },
-    {
-      "id": "approved",
-      "name": "Approved?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        700,
-        620
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $('Parse Callback Data').item.json.action }}",
-              "rightValue": "approve",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "normalize_approved",
-      "name": "Normalize: Approved Review",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        920,
-        560
-      ],
-      "parameters": {
-        "mode": "manual",
-        "assignments": {
-          "assignments": [
-            {
-              "id": "c1",
-              "name": "platform",
-              "type": "string",
-              "value": "={{ $('Fetch Pending Review').item.json.platform }}"
-            },
-            {
-              "id": "c2",
-              "name": "commentId",
-              "type": "string",
-              "value": "={{ $('Fetch Pending Review').item.json.comment_id }}"
-            },
-            {
-              "id": "c3",
-              "name": "postId",
-              "type": "string",
-              "value": "={{ $('Fetch Pending Review').item.json.post_id }}"
-            },
-            {
-              "id": "c4",
-              "name": "reply",
-              "type": "string",
-              "value": "={{ $('Fetch Pending Review').item.json.draft_reply }}"
-            },
-            {
-              "id": "c5",
-              "name": "reviewId",
-              "type": "string",
-              "value": "={{ $('Fetch Pending Review').item.json.id }}"
-            }
-          ]
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "mark_rejected",
-      "name": "Mark Rejected",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1,
-      "position": [
-        920,
-        720
-      ],
-      "parameters": {
-        "resource": "row",
-        "operation": "update",
-        "dataTableId": {
-          "__rl": true,
-          "mode": "name",
-          "value": "pending_reviews"
-        },
-        "filters": {
-          "conditions": [
-            {
-              "keyName": "id",
-              "condition": "eq",
-              "keyValue": "={{ $('Parse Callback Data').item.json.reviewId }}"
-            }
-          ],
-          "matchType": "allFilters"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "status": "rejected"
-          },
-          "matchingColumns": []
-        }
-      },
-      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
-    },
-    {
-      "id": "confirm_rejected",
-      "name": "Confirm Rejected",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        1140,
-        720
-      ],
-      "parameters": {
-        "resource": "message",
-        "operation": "editMessageText",
-        "chatId": "={{ $('Parse Callback Data').item.json.callback_query.message.chat.id }}",
-        "messageId": "={{ $('Parse Callback Data').item.json.callback_query.message.message_id }}",
-        "text": "=Rejected -- nothing was posted.\n\n{{ $('Parse Callback Data').item.json.callback_query.message.text }}"
-      },
-      "credentials": {
-        "telegramApi": {
-          "id": "REPLACE_IN_UI",
-          "name": "Telegram bot (comment-reply)"
-        }
       }
     },
     {
@@ -857,13 +554,44 @@
       "parameters": {}
     },
     {
-      "id": "came_from_approval",
-      "name": "Came From Approval?",
+      "id": "email_approval",
+      "name": "Email: Ask Approval",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2720,
+        200
+      ],
+      "parameters": {
+        "operation": "sendAndWait",
+        "fromEmail": "={{ $('Config').item.json.approvalEmail }}",
+        "sendTo": "={{ $('Config').item.json.approvalEmail }}",
+        "subject": "=رد جديد يحتاج موافقتك — {{ $('Normalized Comment').item.json.platform }} — {{ $('Normalized Comment').item.json.authorName }}",
+        "message": "=تعليق من {{ $('Normalized Comment').item.json.authorName }} ({{ $('Normalized Comment').item.json.platform }}):\n\n\"{{ $('Normalized Comment').item.json.text }}\"\n\nنوع العميل: {{ $json.client_type }}\n\nالرد المقترح:\n\"{{ $json.reply }}\"",
+        "responseType": "approval",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_IN_UI",
+          "name": "Gmail SMTP (app password)"
+        }
+      },
+      "notes": "n8n's built-in human-in-the-loop: sends the email with Approve/Disapprove buttons and PAUSES this execution until a button is clicked (waiting executions are persisted by n8n and survive restarts). Output: $json.data.approved (true/false). Best-effort scaffold -- after import, open this node and confirm the operation is 'Send and Wait for Response' with Response Type 'Approval', and re-select the SMTP credential."
+    },
+    {
+      "id": "approval_decision",
+      "name": "Approval Decision",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2080,
-        380
+        2940,
+        200
       ],
       "parameters": {
         "conditions": {
@@ -873,11 +601,11 @@
           },
           "conditions": [
             {
-              "leftValue": "={{ $json.reviewId }}",
-              "rightValue": "",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": true,
               "operator": {
-                "type": "string",
-                "operation": "exists"
+                "type": "boolean",
+                "operation": "true"
               }
             }
           ],
@@ -887,64 +615,92 @@
       }
     },
     {
-      "id": "mark_posted",
-      "name": "Mark Posted",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1,
+      "id": "sheets_posted",
+      "name": "Log To Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
       "position": [
         2300,
-        300
+        380
       ],
       "parameters": {
-        "resource": "row",
-        "operation": "update",
-        "dataTableId": {
+        "operation": "append",
+        "documentId": {
           "__rl": true,
-          "mode": "name",
-          "value": "pending_reviews"
+          "mode": "list",
+          "value": "REPLACE_IN_UI_SELECT_SPREADSHEET"
         },
-        "filters": {
-          "conditions": [
-            {
-              "keyName": "id",
-              "condition": "eq",
-              "keyValue": "={{ $json.reviewId }}"
-            }
-          ],
-          "matchType": "allFilters"
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "REPLACE_IN_UI_SELECT_SHEET"
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "status": "posted"
+            "التاريخ": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "المنصة": "={{ $('Normalized Comment').item.json.platform }}",
+            "اسم العميل": "={{ $('Normalized Comment').item.json.authorName }}",
+            "التعليق": "={{ $('Normalized Comment').item.json.text }}",
+            "نوع العميل": "={{ $('Parse AI JSON').item.json.client_type }}",
+            "الرد": "={{ $('Parse AI JSON').item.json.reply }}",
+            "الحالة": "={{ $('Parse AI JSON').item.json.needs_human ? 'تمت الموافقة يدويًا' : 'تم الرد تلقائيًا' }}"
           },
           "matchingColumns": []
-        }
-      },
-      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
-    },
-    {
-      "id": "confirm_posted",
-      "name": "Confirm Posted",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        2520,
-        300
-      ],
-      "parameters": {
-        "resource": "message",
-        "operation": "editMessageText",
-        "chatId": "={{ $('Parse Callback Data').item.json.callback_query.message.chat.id }}",
-        "messageId": "={{ $('Parse Callback Data').item.json.callback_query.message.message_id }}",
-        "text": "=Posted live: \"{{ $json.reply }}\""
+        },
+        "options": {}
       },
       "credentials": {
-        "telegramApi": {
+        "googleSheetsOAuth2Api": {
           "id": "REPLACE_IN_UI",
-          "name": "Telegram bot (comment-reply)"
+          "name": "Google Sheets account"
         }
-      }
+      },
+      "notes": "Best-effort scaffold for the Google Sheets node -- after import: select your Google Sheets OAuth credential, pick the real spreadsheet + sheet from the dropdowns, and confirm the column mapping matches the Arabic headers (see GUIDE.md for the sheet layout to create)."
+    },
+    {
+      "id": "sheets_rejected",
+      "name": "Log: Rejected",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3160,
+        280
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "REPLACE_IN_UI_SELECT_SPREADSHEET"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "REPLACE_IN_UI_SELECT_SHEET"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "التاريخ": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "المنصة": "={{ $('Normalized Comment').item.json.platform }}",
+            "اسم العميل": "={{ $('Normalized Comment').item.json.authorName }}",
+            "التعليق": "={{ $('Normalized Comment').item.json.text }}",
+            "نوع العميل": "={{ $('Parse AI JSON').item.json.client_type }}",
+            "الرد": "={{ $('Parse AI JSON').item.json.reply }}",
+            "الحالة": "مرفوض — لم يُنشر"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_IN_UI",
+          "name": "Google Sheets account"
+        }
+      },
+      "notes": "Best-effort scaffold for the Google Sheets node -- after import: select your Google Sheets OAuth credential, pick the real spreadsheet + sheet from the dropdowns, and confirm the column mapping matches the Arabic headers (see GUIDE.md for the sheet layout to create)."
     }
   ],
   "connections": {
@@ -970,17 +726,6 @@
         ]
       ]
     },
-    "Telegram: Approval Callback": {
-      "main": [
-        [
-          {
-            "node": "Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Config": {
       "main": [
         [
@@ -994,13 +739,6 @@
     },
     "Route By Entry": {
       "main": [
-        [
-          {
-            "node": "Parse Callback Data",
-            "type": "main",
-            "index": 0
-          }
-        ],
         [
           {
             "node": "Normalized Comment",
@@ -1087,7 +825,7 @@
       "main": [
         [
           {
-            "node": "Insert Pending Review",
+            "node": "Email: Ask Approval",
             "type": "main",
             "index": 0
           }
@@ -1095,79 +833,6 @@
         [
           {
             "node": "Ready To Post",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Insert Pending Review": {
-      "main": [
-        [
-          {
-            "node": "Send Approval Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse Callback Data": {
-      "main": [
-        [
-          {
-            "node": "Fetch Pending Review",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Pending Review": {
-      "main": [
-        [
-          {
-            "node": "Approved?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Approved?": {
-      "main": [
-        [
-          {
-            "node": "Normalize: Approved Review",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Mark Rejected",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalize: Approved Review": {
-      "main": [
-        [
-          {
-            "node": "Ready To Post",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Mark Rejected": {
-      "main": [
-        [
-          {
-            "node": "Confirm Rejected",
             "type": "main",
             "index": 0
           }
@@ -1229,30 +894,7 @@
       "main": [
         [
           {
-            "node": "Came From Approval?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Came From Approval?": {
-      "main": [
-        [
-          {
-            "node": "Mark Posted",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
-      ]
-    },
-    "Mark Posted": {
-      "main": [
-        [
-          {
-            "node": "Confirm Posted",
+            "node": "Log To Google Sheets",
             "type": "main",
             "index": 0
           }
@@ -1275,6 +917,35 @@
         [
           {
             "node": "Normalize: YouTube Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Ask Approval": {
+      "main": [
+        [
+          {
+            "node": "Approval Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Decision": {
+      "main": [
+        [
+          {
+            "node": "Ready To Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: Rejected",
             "type": "main",
             "index": 0
           }

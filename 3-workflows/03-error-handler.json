@@ -27,9 +27,9 @@
           "assignments": [
             {
               "id": "e1",
-              "name": "telegramChatId",
+              "name": "ownerEmail",
               "type": "string",
-              "value": "REPLACE_WITH_TELEGRAM_CHAT_ID"
+              "value": "brahim99zahir@gmail.com"
             },
             {
               "id": "e2",
@@ -63,25 +63,23 @@
     {
       "id": "alert",
       "name": "Send Error Alert",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
       "position": [
         440,
         0
       ],
       "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "chatId": "={{ $json.telegramChatId }}",
-        "text": "=⚠️ n8n workflow error\n\nWorkflow: {{ $json.workflowName }}\nNode: {{ $json.failedNode }}\nError: {{ $json.errorMessage }}\n\n{{ $json.executionUrl }}",
-        "additionalFields": {
-          "parse_mode": "Markdown"
-        }
+        "fromEmail": "={{ $json.ownerEmail }}",
+        "toEmail": "={{ $json.ownerEmail }}",
+        "subject": "=⚠️ خطأ في نظام الرد الآلي — {{ $json.workflowName }}",
+        "text": "=وقع خطأ في n8n:\n\nWorkflow: {{ $json.workflowName }}\nNode: {{ $json.failedNode }}\nError: {{ $json.errorMessage }}\n\n{{ $json.executionUrl }}",
+        "options": {}
       },
       "credentials": {
-        "telegramApi": {
+        "smtp": {
           "id": "REPLACE_IN_UI",
-          "name": "Telegram bot (comment-reply)"
+          "name": "Gmail SMTP (app password)"
         }
       }
     }
