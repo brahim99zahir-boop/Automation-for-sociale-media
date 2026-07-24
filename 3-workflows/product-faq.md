@@ -11,26 +11,19 @@
 - **What it is / does**: custom-made mosquito nets/screens, fitted to the customer's
   windows/doors.
 
-## Pricing — ⚠️ CONFLICTING INFO, DO NOT GO LIVE UNTIL RESOLVED
+## Pricing — CONFIRMED by the owner (2026-07-24): prices are per square meter
 
-Two different price lists were provided on different days and they don't agree. The AI must
-route ALL pricing questions to human review (`needs_human: true`) until the owner confirms
-which is current.
+- Regular (عادي): **470.00 MAD / m²**
+- Double (مزدوج): **720.00 MAD / m²**
+- Blackout (مضلم): **630.00 MAD / m²**
 
-**List A (provided 2026-07-24, earlier in the project):** fixed per-unit prices
-- Regular (عادي): 470.00 MAD
-- Double (مزدوج): 720.00 MAD
-- Blackout (مضلم): 630.00 MAD
+Because pricing is per m², the final price depends on the customer's window/door
+measurements — the AI should give the per-m² rate and invite the customer to send their
+measurements on WhatsApp for an exact quote, rather than quoting a total itself.
 
-**List B (provided later the same day, from a real customer-facing WhatsApp reply):**
-per-square-meter prices
-- Moustiquaire: 550 MAD / m²
-- Blackout fabric version (بديل الخامية لي كايضلم): 650
-- Fabric + insect version (بديل الخامية والحشرات): 750
-- Insect version (ديال الحشرات): 550 MAD
-
-Open questions for the owner: Which list is current? Are List B's 650/750/550 also per-m²?
-Do the fixed prices from List A still exist as minimums or package deals?
+Note: an older WhatsApp reply from the owner quoted different numbers (550/650/750) — those
+are superseded; the owner confirmed the list above. That older message is still used as a
+*voice* sample in the voice profile, but its prices must not be repeated.
 
 ## Delivery
 
