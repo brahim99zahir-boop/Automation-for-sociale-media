@@ -245,57 +245,60 @@
     },
     {
       "id": "yt_dedup",
-      "name": "Claim New Comment (dedup)",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "name": "Filter: Not Already Seen",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
       "position": [
         1180,
         500
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO yt_seen_comments (comment_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING comment_id",
-        "options": {
-          "queryReplacement": "={{ [$json.snippet.topLevelComment.id] }}"
+        "resource": "row",
+        "operation": "ifRowDoesNotExist",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "yt_seen_comments"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "comment_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.snippet.topLevelComment.id }}"
+            }
+          ],
+          "matchType": "allFilters"
         }
       },
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_IN_UI",
-          "name": "Postgres (n8n stack)"
-        }
-      },
-      "notes": "Atomic claim: if this INSERT returns a row, the comment is genuinely new (not seen by a prior poll)."
+      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix. Passes the item through only when no row with this comment_id exists yet -- i.e. this IS the dedup check. If your n8n version doesn't have this operation, use 'Get' + a manual IF instead."
     },
     {
-      "id": "yt_isnew",
-      "name": "Is Genuinely New?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "id": "yt_mark_seen",
+      "name": "Mark As Seen",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
       "position": [
         1400,
         500
       ],
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.comment_id }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "exists"
-              }
-            }
-          ],
-          "combinator": "and"
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "yt_seen_comments"
         },
-        "options": {}
-      }
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "comment_id": "={{ $json.snippet.topLevelComment.id }}"
+          },
+          "matchingColumns": []
+        }
+      },
+      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
     },
     {
       "id": "yt_normalize",
@@ -320,7 +323,7 @@
               "id": "b2",
               "name": "commentId",
               "type": "string",
-              "value": "={{ $('Claim New Comment (dedup)').item.json.comment_id }}"
+              "value": "={{ $('Split Comment Items').item.json.snippet.topLevelComment.id }}"
             },
             {
               "id": "b3",
@@ -445,25 +448,33 @@
     {
       "id": "insert_pending",
       "name": "Insert Pending Review",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
       "position": [
         2720,
         200
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO pending_reviews (platform, comment_id, post_id, draft_reply) VALUES ($1, $2, $3, $4) RETURNING id",
-        "options": {
-          "queryReplacement": "={{ [$('Normalized Comment').item.json.platform, $('Normalized Comment').item.json.commentId, $('Normalized Comment').item.json.postId, $json.reply] }}"
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "pending_reviews"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "platform": "={{ $('Normalized Comment').item.json.platform }}",
+            "comment_id": "={{ $('Normalized Comment').item.json.commentId }}",
+            "post_id": "={{ $('Normalized Comment').item.json.postId }}",
+            "draft_reply": "={{ $json.reply }}",
+            "status": "pending"
+          },
+          "matchingColumns": []
         }
       },
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_IN_UI",
-          "name": "Postgres (n8n stack)"
-        }
-      }
+      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix. Expects the Insert operation to return the created row including its auto id -- referenced downstream as $('Insert Pending Review').item.json.id. Confirm that's the actual output shape after import; Data Tables auto-generate an id column per n8n's docs."
     },
     {
       "id": "send_approval",
@@ -530,25 +541,32 @@
     {
       "id": "fetch_pending",
       "name": "Fetch Pending Review",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
       "position": [
         480,
         620
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT * FROM pending_reviews WHERE id = $1",
-        "options": {
-          "queryReplacement": "={{ [$json.reviewId] }}"
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "pending_reviews"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.reviewId }}"
+            }
+          ],
+          "matchType": "allFilters"
         }
       },
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_IN_UI",
-          "name": "Postgres (n8n stack)"
-        }
-      }
+      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
     },
     {
       "id": "approved",
@@ -631,25 +649,39 @@
     {
       "id": "mark_rejected",
       "name": "Mark Rejected",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
       "position": [
         920,
         720
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE pending_reviews SET status = 'rejected' WHERE id = $1",
-        "options": {
-          "queryReplacement": "={{ [$('Parse Callback Data').item.json.reviewId] }}"
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "pending_reviews"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Parse Callback Data').item.json.reviewId }}"
+            }
+          ],
+          "matchType": "allFilters"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "rejected"
+          },
+          "matchingColumns": []
         }
       },
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_IN_UI",
-          "name": "Postgres (n8n stack)"
-        }
-      }
+      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
     },
     {
       "id": "confirm_rejected",
@@ -857,25 +889,39 @@
     {
       "id": "mark_posted",
       "name": "Mark Posted",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
       "position": [
         2300,
         300
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE pending_reviews SET status = 'posted' WHERE id = $1",
-        "options": {
-          "queryReplacement": "={{ [$json.reviewId] }}"
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "pending_reviews"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.reviewId }}"
+            }
+          ],
+          "matchType": "allFilters"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "posted"
+          },
+          "matchingColumns": []
         }
       },
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_IN_UI",
-          "name": "Postgres (n8n stack)"
-        }
-      }
+      "notes": "Best-effort scaffold for n8n's Data Table node -- I could not fully verify the exact internal parameter schema from docs alone. Before using: create this Data Table in the n8n UI first (see GUIDE.md), then open this node, re-select the table from the dropdown, and re-check the column mapping / filter -- the operation and table name are right, the exact field layout may need a small fix."
     },
     {
       "id": "confirm_posted",
@@ -986,34 +1032,11 @@
       "main": [
         [
           {
-            "node": "Claim New Comment (dedup)",
+            "node": "Filter: Not Already Seen",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Claim New Comment (dedup)": {
-      "main": [
-        [
-          {
-            "node": "Is Genuinely New?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Is Genuinely New?": {
-      "main": [
-        [
-          {
-            "node": "Normalize: YouTube Comment",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Normalize: YouTube Comment": {
@@ -1230,6 +1253,28 @@
         [
           {
             "node": "Confirm Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Not Already Seen": {
+      "main": [
+        [
+          {
+            "node": "Mark As Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark As Seen": {
+      "main": [
+        [
+          {
+            "node": "Normalize: YouTube Comment",
             "type": "main",
             "index": 0
           }

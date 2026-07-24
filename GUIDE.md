@@ -8,9 +8,9 @@ already built, what's still open, and exactly what you need to do next.
 
 - `1-voice-profile/` — transcription tooling + honest results (see below — this is the one
   part that needs your input before it's usable).
-- `2-server/` — `docker-compose.yml` (n8n + Postgres + Caddy, single-process mode, only
-  ports 80/443 public), `Caddyfile`, `.env.example`, `init-data.sh`, `setup-commands.sh`
-  (block-by-block, run over SSH once you have a VPS).
+- `2-server/` — a self-hosted deployment path (Docker Compose + Caddy + Postgres) kept as a
+  fallback for later. **Not currently used** — see `2-server/NOTE.md`. You chose n8n Cloud
+  instead, which needs no server at all.
 - `3-workflows/` — three importable n8n workflows (`01-comment-reply-engine.json`,
   `02-meta-webhook-router.json`, `03-error-handler.json`) and `product-faq.md` filled with
   your real Mosiquaire facts.
@@ -41,12 +41,36 @@ personally written to customers — pricing questions, delivery questions, a com
 customer, ideally 8-10 of them — or (b) links to videos where you talk to camera for 30+
 seconds (testimonials, "why I started this," Q&A) instead of silent product demos.
 
-### 2. No VPS/domain yet
+### 2. n8n Cloud account not created yet
 
-Everything in `2-server/` is ready to deploy, but there's nothing to deploy to. When you
-have a VPS (Hetzner CX22 + Ubuntu 24.04 recommended, ~50 MAD/month) and a domain with an
-`n8n.<domain>` A record pointing at it, come back and I'll run `2-server/setup-commands.sh`
-over SSH, block by block.
+You decided to use **n8n Cloud** (~260 MAD/month Starter plan) instead of self-hosting on a
+VPS — no server, Docker, domain, or SSH needed. Here's what's left:
+
+1. Go to **https://n8n.io/cloud/** (or **https://app.n8n.cloud/register**) and sign up — the
+   14-day free trial doesn't require a card.
+2. Pick a subdomain for your instance (e.g. `yourname.app.n8n.cloud`) — n8n Cloud handles
+   HTTPS automatically, nothing to configure.
+3. Once you're in, go to **Settings → n8n API** and create an API key — send it to me and
+   I'll import and wire up the 3 workflows for you.
+4. **Create the 3 Data Tables** the workflows use (Data Tables is n8n's built-in structured
+   storage — replaces the Postgres database the self-hosted path would have used). In the n8n
+   UI: **Data Tables → Create Table**, and make these three:
+
+   | Table name | Columns |
+   |---|---|
+   | `yt_seen_comments` | `comment_id` (string) |
+   | `pending_reviews` | `platform` (string), `comment_id` (string), `post_id` (string), `draft_reply` (string), `status` (string) |
+   | `yt_poll_state` | `channel_id` (string), `last_checked_at` (string) — not currently used by a node, kept for a future rate-limit/pagination improvement; safe to skip for now |
+
+   Data Tables auto-generate their own `id` column, so you don't need to add one.
+5. When you open the imported workflow, a few **Data Table nodes will show a config warning**
+   (`Filter: Not Already Seen`, `Mark As Seen`, `Insert Pending Review`, `Fetch Pending Review`,
+   `Mark Rejected`, `Mark Posted`) — this is expected. Each one's "notes" field explains what to
+   re-check: reselect the actual table from the dropdown (I could only pre-fill it by name, not
+   by its real internal ID) and confirm the column mapping looks right. I couldn't fully verify
+   n8n's exact Data Table parameter schema from documentation alone, so treat these six nodes as
+   a solid starting scaffold, not a guaranteed drop-in — the master prompt's own rule applies
+   here too: validate → verify wiring → test → only then activate.
 
 ### 3. Three "confirm with the business owner" gaps in the FAQ
 
@@ -85,17 +109,19 @@ a real API call before we move on — see `CLAUDE-CODE-MASTER-PROMPT.md` Phase 3
    needed — this can happen anytime, in parallel with everything else.
 2. Fill in the 3 FAQ gaps in `3-workflows/product-faq.md` (§3) whenever you have the answers.
 3. Get the Telegram bot token + chat ID (§4) — takes 5 minutes, no cost.
-4. Buy a VPS + domain, point DNS at it (§2) — tell me when it's done and I'll deploy.
-5. Once n8n is live: create the owner account immediately, enable 2FA, create an API key,
-   hand it to me — I'll import and wire up the 3 workflows.
-6. Then the account setup (Anthropic/YouTube/Meta) and the test gates in
+4. Sign up for n8n Cloud, create the 3 Data Tables, create an API key, send it to me (§2) —
+   I'll import and wire up the 3 workflows.
+5. Then the account setup (Anthropic/YouTube/Meta) and the test gates in
    `CLAUDE-CODE-MASTER-PROMPT.md` Phase 5 — nothing posts publicly without your explicit OK
    on the first real test, per the non-negotiable rules at the top of that file.
 
 ## Budget check
 
-VPS (~50 MAD) + Claude Haiku API calls (~100-200 MAD at expected comment volume) stays well
-under the 500 MAD/month ceiling. No other paid services are used anywhere in this package.
+n8n Cloud Starter (~260 MAD/month) + Claude Haiku API calls (~100-200 MAD at expected comment
+volume) lands around **360-460 MAD/month** — under the 500 MAD ceiling, but with less margin
+than the self-hosted path would have had (~65 MAD/month total). If comment volume grows enough
+to push past this, `2-server/` is ready as a cheaper fallback (see `2-server/NOTE.md`). No
+other paid services are used anywhere in this package.
 
 ## A note on how the n8n workflows are wired (for when you're reviewing them)
 
@@ -106,13 +132,13 @@ under the 500 MAD/month ceiling. No other paid services are used anywhere in thi
   holds the 4 IDs (`channelId`, `igUserId`, `fbPageId`, `telegramChatId`) and the full system
   prompt — that's the one place Phase 4 patches with your real values.
 - Sensitive comments don't use n8n's `Wait` node (that would hold an execution open
-  indefinitely, which is fragile across restarts) — instead the draft is saved to Postgres
-  and the Telegram approval button's callback starts a fresh, independent execution that
+  indefinitely, which is fragile across restarts) — instead the draft is saved to a Data
+  Table and the Telegram approval button's callback starts a fresh, independent execution that
   finishes the job. This is the standard n8n human-in-the-loop pattern.
 - `02-meta-webhook-router.json` handles both the one-time GET verification challenge Meta
   sends and the ongoing POST events for both Instagram and Facebook (they share one webhook).
 - `03-error-handler.json` is wired as both other workflows' error workflow — any node failure
   anywhere sends you a Telegram alert with the workflow name, failing node, and error message.
-- Three Postgres tables back this (created once via `setup-commands.sh` block 8):
-  `yt_seen_comments` (dedup for YouTube polling), `yt_poll_state`, and `pending_reviews`
-  (the human-approval queue).
+- Two n8n Data Tables back this (create them in the n8n Cloud UI per §2 above):
+  `yt_seen_comments` (dedup for YouTube polling) and `pending_reviews` (the human-approval
+  queue). No external database needed — this is n8n Cloud's built-in structured storage.
