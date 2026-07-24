@@ -1,10 +1,25 @@
-[STATUS: DRAFT — voice-profile.md is built from only 2 short text samples of uncertain
-authorship (see its Confidence Note). Do not inject this into a live n8n workflow / activate
-auto-posting until the Phase 1 quality gate (10 sample replies reviewed and approved) passes
-with a properly expanded voice profile. This file is still useful now for testing the
-pipeline end-to-end with needs_human forced true.]
+[STATUS: DRAFT — voice-profile.md is built from only 3 short text samples (see its
+Confidence Note; one sample's authorship is uncertain). Pricing is currently CONFLICTING —
+see the FAQ's pricing section — so all pricing questions must route to needs_human until the
+owner confirms. Do not activate auto-posting until the Phase 1 quality gate (10 sample
+replies reviewed and approved) passes.]
 
-# Voice Profile — DRAFT (sample size: 2 short real text samples)
+# Voice Profile — DRAFT (sample size: 3 short real text samples)
+
+> **Update (2026-07-24, later):** a third sample arrived — a real customer-facing WhatsApp
+> greeting/price reply. It's the strongest sample so far because it's unambiguously what the
+> business actually sends to customers. Key new observations from sample 3:
+> - Business name used in greeting: **فيها خير** ("مرحبًا بك عند فيها خير ملك وموستكير في المغرب")
+> - Opens with the religious greeting السلام عليكم and thanks the customer for reaching out
+>   ("شكرًا لتواصلك معا فيها خير")
+> - Register mixes Modern Standard Arabic politeness formulas ("شكرًا على ثقتك، ومرحبًا بك
+>   دائمًا") with Darija verbs ("إذا بغيتي تطلبي، عافاك صيفطي ليا")
+> - Uses `*asterisks*` around the WhatsApp number (consistent with sample 1's bold habit)
+> - Structured price list with line breaks; prices written inconsistently ("550 درهم", "650",
+>   "550dh") — the AI should normalize to "X درهم" style
+> - Closes with reassurance + open door: "غادي نأكد ليك الطلب ونجاوب على أي استفسار عندك"
+>   — consistent with the closing-offer habit seen in samples 1-2 (now n=3, a confirmed
+>   pattern)
 
 ## Confidence note
 
@@ -56,6 +71,9 @@ Latin-script Darija (Arabizi) observed in these samples.
 - "صافي، راني حدثت جميع الأثمنة فـ Knowledge وفـ Catalog كيفما طلبتي:" *(authorship uncertain — see confidence note)*
 - "وعليكم السلام ورحمة الله! المحل ديالنا كاين في مدينة *أكادير*، بالضبط في حي التمديد بين حي المسيرة وحي الداخلة"
 - "كيفاش نقدر نعاونك اليوم؟"
+- "السلام عليكم، مرحبًا بك عند فيها خير" *(sample 3 — customer-facing greeting)*
+- "إذا بغيتي تطلبي، عافاك صيفطي ليا العبارت على واتساب: *0666567672*" *(sample 3)*
+- "غادي نأكد ليك الطلب ونجاوب على أي استفسار عندك. شكرًا على ثقتك، ومرحبًا بك دائمًا." *(sample 3 — closing)*
 
 ## Explicitly NOT observed (do not assume)
 
@@ -67,31 +85,60 @@ Latin-script Darija (Arabizi) observed in these samples.
 - No evidence either way on how he handles a genuinely angry/complaining customer message —
   both samples are neutral, informational exchanges.
 
+## Next step
+
+Once the authorship question above is answered and 8-10 more real samples are available (ideally
+actual replies to real comments/DMs, covering a range of situations: pricing questions,
+complaints, delivery questions, a happy customer), re-run this same prompt
+(`voice-profile-prompt.txt`) against the full set and replace this file. Do not wire this draft
+into `system-prompt.txt` for production use without that follow-up — it's flagged in
+`GUIDE.md`'s quality gate.
+
 ---
 
-# Product FAQ — Mosiquaire
+# Product FAQ — Mosiquaire (فيها خير)
+
+## Business
+
+- **Name**: فيها خير (Fiha Khir) — "ملك الموستكير في المغرب" per the owner's own greeting
+  message.
 
 ## Product
 
 - **Name**: Mosiquaire (moustiquaire / mosquito net), made to order.
 - **What it is / does**: custom-made mosquito nets/screens, fitted to the customer's
   windows/doors.
-- **Variants**:
-  - Regular (عادي) — 470.00 MAD
-  - Double (مزدوج) — 720.00 MAD
-  - Blackout (مضلم) — 630.00 MAD
 
-## Pricing
+## Pricing — ⚠️ CONFLICTING INFO, DO NOT GO LIVE UNTIL RESOLVED
 
-- Regular: 470.00 MAD
-- Double: 720.00 MAD
-- Blackout: 630.00 MAD
+Two different price lists were provided on different days and they don't agree. The AI must
+route ALL pricing questions to human review (`needs_human: true`) until the owner confirms
+which is current.
+
+**List A (provided 2026-07-24, earlier in the project):** fixed per-unit prices
+- Regular (عادي): 470.00 MAD
+- Double (مزدوج): 720.00 MAD
+- Blackout (مضلم): 630.00 MAD
+
+**List B (provided later the same day, from a real customer-facing WhatsApp reply):**
+per-square-meter prices
+- Moustiquaire: 550 MAD / m²
+- Blackout fabric version (بديل الخامية لي كايضلم): 650
+- Fabric + insect version (بديل الخامية والحشرات): 750
+- Insect version (ديال الحشرات): 550 MAD
+
+Open questions for the owner: Which list is current? Are List B's 650/750/550 also per-m²?
+Do the fixed prices from List A still exist as minimums or package deals?
 
 ## Delivery
 
-- **Cities covered**: all Moroccan cities (nationwide shipping).
-- **Delivery price**: not specified — confirm with the business owner; do not invent a fee.
-- **Delivery time**: not specified — confirm with the business owner.
+- **Cities covered**: all Moroccan cities (nationwide shipping) — **and international
+  shipping is available** (per the owner's WhatsApp reply; destination countries/pricing not
+  specified, route international questions to human review).
+- **Delivery price**: **60.00 MAD** to any Moroccan city (per the owner's WhatsApp reply).
+- **Delivery time**: not specified — **confirm with the business owner**; since it's made to
+  order, production time likely factors in — worth clarifying whether the quoted delivery time
+  includes production or starts after.
 - **In-person pickup**: yes — atelier in Agadir, Hay Tamdit, between Hay Massira and Hay
   Dakhla (near a café on the road toward Drarga).
   Map: https://maps.app.goo.gl/tTiXvsHC18Hj8mEW7?g_st=ac
@@ -102,20 +149,26 @@ Latin-script Darija (Arabizi) observed in these samples.
 
 ## Payment
 
-- **Methods accepted**: not specified — confirm with the business owner; do not guess.
-- **When payment is collected**: before production starts (it's made to order); full amount
-  vs. deposit not yet confirmed.
+- **Methods accepted**: not specified — **confirm with the business owner** (cash on delivery?
+  bank transfer? online?). Do not let the AI guess a payment method.
+- **When payment is collected**: before production starts — it's made to order, so payment (in
+  full or as a deposit — clarify which) happens up front.
 
 ## Guarantees / returns
 
-- Not specified — confirm with the business owner. Until confirmed, do not claim any
-  warranty/return policy exists.
+- Not specified — **confirm with the business owner**. Until confirmed, the AI should not
+  claim any warranty/return policy exists, and should route a direct "can I return this?"
+  question to human review (`needs_human: true`) rather than guessing.
 
-## Escalation note
+## Anything else customers commonly ask
 
-A customer asking about delivery fee, delivery time, payment method, or guarantees/returns
-should get `needs_human: true` until those FAQ sections above are filled in with confirmed
-facts — these are marked "not specified" on purpose, not an oversight.
+- (none captured yet — add real recurring questions here as they come up)
+
+---
+**Before going live**: the three "confirm with the business owner" items above (delivery fee,
+delivery time, payment method/guarantee) are the most likely source of a wrong auto-reply if
+left unconfirmed — a customer asking any of these three questions should route to
+`needs_human: true` until they're filled in here.
 
 ---
 

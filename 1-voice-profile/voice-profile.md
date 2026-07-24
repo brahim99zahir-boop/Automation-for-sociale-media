@@ -1,4 +1,19 @@
-# Voice Profile — DRAFT (sample size: 2 short real text samples)
+# Voice Profile — DRAFT (sample size: 3 short real text samples)
+
+> **Update (2026-07-24, later):** a third sample arrived — a real customer-facing WhatsApp
+> greeting/price reply. It's the strongest sample so far because it's unambiguously what the
+> business actually sends to customers. Key new observations from sample 3:
+> - Business name used in greeting: **فيها خير** ("مرحبًا بك عند فيها خير ملك وموستكير في المغرب")
+> - Opens with the religious greeting السلام عليكم and thanks the customer for reaching out
+>   ("شكرًا لتواصلك معا فيها خير")
+> - Register mixes Modern Standard Arabic politeness formulas ("شكرًا على ثقتك، ومرحبًا بك
+>   دائمًا") with Darija verbs ("إذا بغيتي تطلبي، عافاك صيفطي ليا")
+> - Uses `*asterisks*` around the WhatsApp number (consistent with sample 1's bold habit)
+> - Structured price list with line breaks; prices written inconsistently ("550 درهم", "650",
+>   "550dh") — the AI should normalize to "X درهم" style
+> - Closes with reassurance + open door: "غادي نأكد ليك الطلب ونجاوب على أي استفسار عندك"
+>   — consistent with the closing-offer habit seen in samples 1-2 (now n=3, a confirmed
+>   pattern)
 
 ## Confidence note
 
@@ -50,6 +65,9 @@ Latin-script Darija (Arabizi) observed in these samples.
 - "صافي، راني حدثت جميع الأثمنة فـ Knowledge وفـ Catalog كيفما طلبتي:" *(authorship uncertain — see confidence note)*
 - "وعليكم السلام ورحمة الله! المحل ديالنا كاين في مدينة *أكادير*، بالضبط في حي التمديد بين حي المسيرة وحي الداخلة"
 - "كيفاش نقدر نعاونك اليوم؟"
+- "السلام عليكم، مرحبًا بك عند فيها خير" *(sample 3 — customer-facing greeting)*
+- "إذا بغيتي تطلبي، عافاك صيفطي ليا العبارت على واتساب: *0666567672*" *(sample 3)*
+- "غادي نأكد ليك الطلب ونجاوب على أي استفسار عندك. شكرًا على ثقتك، ومرحبًا بك دائمًا." *(sample 3 — closing)*
 
 ## Explicitly NOT observed (do not assume)
 
