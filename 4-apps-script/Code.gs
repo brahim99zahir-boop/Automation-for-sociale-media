@@ -192,18 +192,86 @@ function generateReply_(msg) {
   // script is the most obvious bot tell there is, so this is worth pinning down.
   const script = detectScript_(msg.text);
   const instruction = SCRIPT_INSTRUCTION[script];
+  const prompt = where + '\n' + instruction + '\n\n' + msg.text;
 
-  const raw = callClaudeWithRetry_(where + '\n' + instruction + '\n\n' + msg.text);
-  return parseAiJson_(raw);
+  let ai = parseAiJson_(callClaudeWithRetry_(prompt));
+
+  // Script-purity check. The model has been caught splicing Arabic letters into a
+  // Latin reply ("wach bghit tعrf", "bghiti chno bالضبط") — that reads as broken to a
+  // customer. One corrective retry; if it still fails, hand it to a human rather than
+  // post something malformed.
+  if (ai.reply && !scriptIsClean_(ai.reply, script)) {
+    Logger.log('Mixed-script reply, retrying: ' + ai.reply);
+    const retry = parseAiJson_(callClaudeWithRetry_(
+      prompt + '\n\n[Your previous attempt mixed alphabets, which looks broken. Write the ' +
+      'whole reply in ONE alphabet only. Do not put a single Arabic letter inside a Latin ' +
+      'word, or a Latin word inside an Arabic sentence.]'));
+    if (retry.reply && scriptIsClean_(retry.reply, script)) {
+      ai = retry;
+    } else {
+      ai = retry.reply ? retry : ai;
+      ai.needs_human = true;
+      ai.guard = 'خليط ديال الحروف';   // surfaced in the approval email
+    }
+  }
+  return normaliseLabels_(ai);
 }
+
+/**
+ * True when the reply sticks to one alphabet. Latin/French replies must contain no
+ * Arabic letters; Arabic replies may still carry the WhatsApp number and the odd
+ * borrowed word like "whatsapp" or "blackout", so a few Latin characters are fine —
+ * what's checked is that Arabic doesn't dominate a Latin reply or vice versa.
+ */
+function scriptIsClean_(reply, wantedScript) {
+  const arabic = (reply.match(/[؀-ۿ]/g) || []).length;
+  const latin = (reply.match(/[a-zA-Z]/g) || []).length;
+
+  if (wantedScript === 'arabic') return arabic > 0 && latin <= arabic;
+  // latin or french: any Arabic letter at all is a defect
+  return arabic === 0 && latin > 0;
+}
+
+// The script rule applies to the "reply" field ONLY. Without saying so, the model was
+// observed transliterating the metadata too ("dafi", "sual 3an ttaman" instead of
+// دافئ / سؤال عن الثمن), which breaks the sheet's colour rules and the daily summary.
+const METADATA_NOTE = ' This applies ONLY to the "reply" field. "client_type" and "lead" ' +
+  'must always use the exact Arabic labels listed above, never transliterated.';
 
 const SCRIPT_INSTRUCTION = {
   latin: '[SCRIPT: the customer wrote Darija in LATIN letters. Your "reply" MUST be in ' +
          'Latin letters too (e.g. "470 dh l metre. sift lia l9ias f whatsapp ' +
-         '0666567672"). Do NOT reply in Arabic script.]',
-  french: '[SCRIPT: the customer wrote French. Reply in simple French, prices as "470 DH".]',
+         '0666567672"). Do NOT reply in Arabic script.' + METADATA_NOTE + ']',
+  french: '[SCRIPT: the customer wrote French. Reply in simple French, prices as "470 DH".' +
+          METADATA_NOTE + ']',
   arabic: '[SCRIPT: the customer wrote Arabic letters. Reply in Arabic-script Darija.]',
 };
+
+// Canonical labels. Anything the model returns that isn't on these lists gets mapped
+// back, so the spreadsheet and the daily summary can rely on exact matches.
+const VALID_TYPES = ['مهتم بالشراء', 'سؤال عن الثمن', 'استفسار عن التوصيل', 'شكوى',
+                     'زبون سعيد', 'سؤال عام', 'أخرى'];
+const VALID_LEADS = ['ساخن', 'دافئ', 'بارد'];
+
+const TYPE_ALIASES = {
+  'sual 3an ttaman': 'سؤال عن الثمن', 'so2al 3an taman': 'سؤال عن الثمن',
+  'mohtam bchira': 'مهتم بالشراء', 'chikaya': 'شكوى', 'zbon sa3id': 'زبون سعيد',
+  'sual 3am': 'سؤال عام', 'istifsar 3an tawsil': 'استفسار عن التوصيل', 'okhra': 'أخرى',
+};
+const LEAD_ALIASES = { 'sakhin': 'ساخن', 's5in': 'ساخن', 'dafi': 'دافئ', 'defi': 'دافئ',
+                       'barid': 'بارد', 'bared': 'بارد' };
+
+function normaliseLabels_(ai) {
+  const t = String(ai.client_type || '').trim();
+  if (VALID_TYPES.indexOf(t) === -1) {
+    ai.client_type = TYPE_ALIASES[t.toLowerCase()] || 'سؤال عام';
+  }
+  const l = String(ai.lead || '').trim();
+  if (VALID_LEADS.indexOf(l) === -1) {
+    ai.lead = LEAD_ALIASES[l.toLowerCase()] || 'بارد';
+  }
+  return ai;
+}
 
 /**
  * Which script did they use? Counts Arabic vs Latin characters, then separates
