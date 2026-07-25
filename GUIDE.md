@@ -41,7 +41,31 @@ personally written to customers — pricing questions, delivery questions, a com
 customer, ideally 8-10 of them — or (b) links to videos where you talk to camera for 30+
 seconds (testimonials, "why I started this," Q&A) instead of silent product demos.
 
-### 2. The FREE hosting plan (no monthly payment for n8n)
+### 2. ✅ CHOSEN PATH: Google Apps Script (free, no credit card)
+
+**The owner chose this route — see [`4-apps-script/SETUP.md`](./4-apps-script/SETUP.md) for
+the step-by-step.** Everything below in this section (Oracle Cloud, DuckDNS, n8n) is the
+alternative that was *not* chosen; it's kept in case you ever want the visual editor back.
+
+Why Apps Script won: it needs **no credit card, no server, no domain, and no n8n
+subscription**. It runs on Google's infrastructure using the Gmail account you already have,
+and it talks to Google Sheets and Gmail natively — which removed two setup headaches the n8n
+route had (the Google Cloud OAuth project and the Gmail app password).
+
+It has the same features: AI replies in your Darija voice, Arabic client classification, the
+Arabic Google Sheet log, and email approve/reject before anything is posted.
+
+What it gives up: n8n's drag-and-drop editor. The logic is code instead
+(`4-apps-script/Code.gs`), which I maintain for you. Day to day you interact with it exactly
+the same way — through approval emails and the spreadsheet.
+
+The parser fix from the live-API testing is carried over and re-verified against real Claude
+responses (6/6 parsed correctly, complaints and guarantee questions correctly held for human
+review).
+
+---
+
+### 2b. ALTERNATIVE (not chosen): free hosting for n8n
 
 **Key fact: the n8n software itself is free forever.** n8n Community Edition (self-hosted) is
 free to run for your own business — you only ever pay for the *server* it runs on. n8n Cloud's
@@ -175,18 +199,20 @@ later, if you ever add a channel).
 
 ## The order to actually do things in
 
-1. **Oracle Cloud account + free ARM VM** (§2) — the long pole, because of the card
-   verification and possible ARM capacity retries. Start here.
-2. **DuckDNS hostname** (§2) pointed at the VM's IP — 2 minutes.
-3. Send me the **VM public IP + SSH key** — I deploy n8n over SSH and import the workflows.
-4. **Gmail App Password** → SMTP credential for the approval emails (§4).
-5. **Arabic client-log spreadsheet** + Google Sheets credential (§5).
-6. **Meta developer app** for Instagram (§6).
-7. Test gates in `CLAUDE-CODE-MASTER-PROMPT.md` Phase 5 — nothing posts publicly without your
-   explicit OK on the first real test, per the non-negotiable rules in that file.
+Follow **[`4-apps-script/SETUP.md`](./4-apps-script/SETUP.md)** — it's written click by click.
+Summary:
 
-Steps 1-2 are yours alone (card + browser). Everything after that I can drive for you once I
-have SSH access.
+1. Create the Apps Script project and paste in the 3 files (~7 min).
+2. Run `setSecrets()` with your Anthropic key, then delete the pasted key (~2 min).
+3. Run `setupSheet()` → paste the printed spreadsheet ID into `Config.gs` (~1 min).
+4. Run `testWithFakeComment()` → check the email and the sheet (~2 min). Nothing touches real
+   Instagram; `DRAFT_ONLY_MODE` blocks all public posting.
+5. Deploy as a Web app so the approval buttons work; send me the URL.
+6. **Meta developer app** for Instagram (§6) — tell me when you're here and I'll walk you
+   through it screen by screen. This is the only remaining hard part.
+7. Run `installTrigger()` to start the 15-minute timer.
+
+Steps 1-5 you can do right now with no accounts to create and nothing to pay.
 
 Independent of all the above, whenever you have a moment: answer the voice-profile authorship
 question (§1) and fill the remaining FAQ gaps (§3) — payment method, delivery time,
