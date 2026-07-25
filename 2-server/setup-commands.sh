@@ -77,6 +77,22 @@ ufw allow 443
 ufw enable
 ufw status
 
+# --- ORACLE CLOUD ONLY: also punch through Oracle's own iptables rules ---
+# Oracle's Ubuntu images ship with a REJECT rule that blocks everything except
+# SSH, INDEPENDENTLY of ufw. Skip this block on Hetzner/DigitalOcean/etc.
+# Symptom if skipped: ufw looks correct, the containers are healthy, but the
+# site times out from outside and Caddy can never obtain a certificate.
+iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+# Persist across reboots (otherwise the rules vanish on the next restart):
+apt-get install -y iptables-persistent   # answer "yes" to saving current rules
+netfilter-persistent save
+
+# REMINDER: the OCI *console* firewall is separate and must ALSO allow 80/443:
+#   Networking -> your VCN -> Security Lists -> Default -> Add Ingress Rules
+#   Source 0.0.0.0/0, IP Protocol TCP, Destination Port Range 80 then 443.
+# Both layers must be open. This is the most common Oracle deployment failure.
+
 ##############################################################################
 # BLOCK 6 — Launch
 ##############################################################################

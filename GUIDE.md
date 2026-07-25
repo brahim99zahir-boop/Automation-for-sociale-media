@@ -8,9 +8,9 @@ already built, what's still open, and exactly what you need to do next.
 
 - `1-voice-profile/` — transcription tooling + honest results (see below — this is the one
   part that needs your input before it's usable).
-- `2-server/` — a self-hosted deployment path (Docker Compose + Caddy + Postgres) kept as a
-  fallback for later. **Not currently used** — see `2-server/NOTE.md`. You chose n8n Cloud
-  instead, which needs no server at all.
+- `2-server/` — **the active deployment path**: Docker Compose + Caddy (automatic free HTTPS)
+  + Postgres, plus a block-by-block `setup-commands.sh`. Designed for a paid VPS but works
+  identically on a permanently-free Oracle Cloud VM — see §2.
 - `3-workflows/` — three importable n8n workflows (`01-comment-reply-engine.json`,
   `02-meta-webhook-router.json`, `03-error-handler.json`) and `product-faq.md` filled with
   your real Mosiquaire facts.
@@ -41,36 +41,82 @@ personally written to customers — pricing questions, delivery questions, a com
 customer, ideally 8-10 of them — or (b) links to videos where you talk to camera for 30+
 seconds (testimonials, "why I started this," Q&A) instead of silent product demos.
 
-### 2. n8n Cloud account not created yet
+### 2. The FREE hosting plan (no monthly payment for n8n)
 
-You decided to use **n8n Cloud** (~260 MAD/month Starter plan) instead of self-hosting on a
-VPS — no server, Docker, domain, or SSH needed. Here's what's left:
+**Key fact: the n8n software itself is free forever.** n8n Community Edition (self-hosted) is
+free to run for your own business — you only ever pay for the *server* it runs on. n8n Cloud's
+~260 MAD/month buys convenience, not the software.
 
-1. Go to **https://n8n.io/cloud/** (or **https://app.n8n.cloud/register**) and sign up — the
-   14-day free trial doesn't require a card.
-2. Pick a subdomain for your instance (e.g. `yourname.app.n8n.cloud`) — n8n Cloud handles
-   HTTPS automatically, nothing to configure.
-3. Once you're in, go to **Settings → n8n API** and create an API key — send it to me and
-   I'll import and wire up the 3 workflows for you.
-4. **Create the 3 Data Tables** the workflows use (Data Tables is n8n's built-in structured
-   storage — replaces the Postgres database the self-hosted path would have used). In the n8n
-   UI: **Data Tables → Create Table**, and make these three:
+So the plan is: run n8n yourself on a **permanently free** cloud server.
 
-   | Table name | Columns |
-   |---|---|
-   | `yt_seen_comments` | `comment_id` (string) |
+#### Oracle Cloud "Always Free" — free forever, not a trial
 
-   (Only one table now — the approval queue that previously needed a `pending_reviews` table
-   was replaced by n8n's built-in email-approval feature, which pauses the execution itself.)
+Oracle gives every account a permanently free ARM server: **up to 4 CPUs and 12 GB RAM**,
+200 GB storage, 10 TB/month traffic — far more than this system needs, and it never expires
+(verified on oracle.com/cloud/free, July 2026).
 
-   Data Tables auto-generate their own `id` column, so you don't need to add one.
-5. When you open the imported workflow, the **Data Table nodes will show a config warning**
-   (`Filter: Not Already Seen`, `Mark As Seen`) — this is expected. Reselect the actual table
-   from the dropdown (I could only pre-fill it by name, not by its real internal ID) and
-   confirm the column mapping. Same for the **Google Sheets nodes** (`Log To Google Sheets`,
-   `Log: Rejected`) and the **email nodes** (`Email: Ask Approval`, `Send Error Alert`) — pick
-   the credential and spreadsheet from the dropdowns after import. Treat these as solid
-   scaffolds, not guaranteed drop-ins — validate → verify wiring → test → only then activate.
+Honest caveats before you start:
+- **A credit/debit card is required for identity verification.** Oracle places a temporary
+  authorization hold (usually removed in 3-5 days) but does **not** charge you for Always Free
+  resources. Prepaid/virtual cards are rejected.
+- **ARM capacity is often "out of capacity"** in popular regions — this is the single most
+  common frustration. If it fails, retry later or pick a different home region. (Your home
+  region can't be changed after signup, so if you get repeated failures, that matters.)
+- **Accounts idle 30+ days may be suspended** — not an issue here, since the system runs 24/7.
+
+Steps:
+1. Sign up at **https://www.oracle.com/cloud/free/** — choose a home region near you
+   (Frankfurt/Amsterdam are good for Morocco). Verify with your card.
+2. Create a VM: **Compute → Instances → Create Instance**
+   - Image: **Ubuntu 24.04** (change from the Oracle Linux default)
+   - Shape: **Ampere / VM.Standard.A1.Flex**, set **2 OCPU / 12 GB RAM** (stays inside Always
+     Free; anything labelled "Always Free eligible" is safe)
+   - **Save the SSH private key** it offers to download — you cannot get it again, and without
+     it you cannot log into your own server.
+3. Open the firewall in **two** places (Oracle needs both — missing the second is the #1
+   reason "it doesn't work"):
+   - **In the OCI console**: Networking → your VCN → Security Lists → Default → Add Ingress
+     Rules → allow TCP **80** and **443** from `0.0.0.0/0`.
+   - **On the server itself**: Oracle's Ubuntu images ship with restrictive iptables rules.
+     `setup-commands.sh` Block 5 handles this.
+4. Note the VM's **public IP** and send it to me with your SSH key — I'll run the deploy.
+
+#### Free domain: DuckDNS
+
+You need a hostname for HTTPS (Meta refuses plain-IP webhooks). **https://www.duckdns.org** is
+free forever: sign in with Google, pick a name like `fihakhir`, point it at your Oracle VM's IP
+→ you get `fihakhir.duckdns.org`. Caddy then gets a real Let's Encrypt certificate for it
+automatically, at no cost. In `.env` that's `SUBDOMAIN=fihakhir` and `DOMAIN_NAME=duckdns.org`.
+
+#### What this actually costs per month
+
+| Piece | Cost |
+|---|---|
+| n8n software (Community Edition) | **0** |
+| Oracle Cloud Always Free VM | **0** |
+| DuckDNS domain + Let's Encrypt HTTPS | **0** |
+| Gmail SMTP (approval emails) | **0** |
+| Google Sheets (client log) | **0** |
+| Claude API (Haiku) | ~100-200 MAD — **the only real cost** |
+
+**Total: ~100-200 MAD/month**, all of it AI usage. You already added $10 of Anthropic credit,
+which covers a long time at Haiku prices.
+
+If you want to reach a true **0 MAD**, the AI can be swapped to **Google Gemini's free tier**
+(Gemini Flash is free up to a generous daily request limit — https://aistudio.google.com).
+That means changing one node in the workflow; tell me and I'll do it. Claude Haiku will follow
+your Darija voice profile more closely, so I'd only switch if the API cost is a real problem.
+
+#### After the server is up
+
+The workflows need one Data Table (`yt_seen_comments`, single column `comment_id`) created in
+the n8n UI. When you open the imported workflows, the **Data Table**, **Google Sheets**, and
+**email** nodes will show config warnings — that's expected: reselect the table/spreadsheet/
+credential from each dropdown, since I could only pre-fill them by name, not by internal ID.
+Treat them as solid scaffolds, not guaranteed drop-ins — validate → test → only then activate.
+
+(If your n8n version turns out not to offer Data Tables, tell me — the Postgres database in
+`docker-compose.yml` is already running and I'll switch those two nodes over to it.)
 
 ### 3. Three "confirm with the business owner" gaps in the FAQ
 
@@ -129,23 +175,29 @@ later, if you ever add a channel).
 
 ## The order to actually do things in
 
-1. Answer the voice-profile authorship question (§1 above) and send more real samples if
-   needed — this can happen anytime, in parallel with everything else.
-2. Fill in the remaining FAQ gaps (§3): payment method, delivery time, guarantees.
-3. Sign up for n8n Cloud, import the 3 workflows, create the `yt_seen_comments` Data Table (§2).
-4. Create the Gmail App Password + SMTP credential for email approvals (§4).
-5. Create the Arabic client-log spreadsheet + Google Sheets credential (§5).
-6. Then the Meta developer app (§6) and the test gates in `CLAUDE-CODE-MASTER-PROMPT.md`
-   Phase 5 — nothing posts publicly without your explicit OK on the first real test, per the
-   non-negotiable rules at the top of that file.
+1. **Oracle Cloud account + free ARM VM** (§2) — the long pole, because of the card
+   verification and possible ARM capacity retries. Start here.
+2. **DuckDNS hostname** (§2) pointed at the VM's IP — 2 minutes.
+3. Send me the **VM public IP + SSH key** — I deploy n8n over SSH and import the workflows.
+4. **Gmail App Password** → SMTP credential for the approval emails (§4).
+5. **Arabic client-log spreadsheet** + Google Sheets credential (§5).
+6. **Meta developer app** for Instagram (§6).
+7. Test gates in `CLAUDE-CODE-MASTER-PROMPT.md` Phase 5 — nothing posts publicly without your
+   explicit OK on the first real test, per the non-negotiable rules in that file.
+
+Steps 1-2 are yours alone (card + browser). Everything after that I can drive for you once I
+have SSH access.
+
+Independent of all the above, whenever you have a moment: answer the voice-profile authorship
+question (§1) and fill the remaining FAQ gaps (§3) — payment method, delivery time,
+guarantees. Those improve reply quality but don't block the deployment.
 
 ## Budget check
 
-n8n Cloud Starter (~260 MAD/month) + Claude Haiku API calls (~100-200 MAD at expected comment
-volume) lands around **360-460 MAD/month** — under the 500 MAD ceiling, but with less margin
-than the self-hosted path would have had (~65 MAD/month total). If comment volume grows enough
-to push past this, `2-server/` is ready as a cheaper fallback (see `2-server/NOTE.md`). No
-other paid services are used anywhere in this package.
+With the free-hosting plan in §2, the only recurring cost is the Claude Haiku API
+(~100-200 MAD/month at expected comment volume) — roughly **a fifth of the 500 MAD ceiling**,
+and it can go to zero by switching to Gemini's free tier. Hosting, HTTPS, email, and the
+spreadsheet are all free. No other paid services are used anywhere in this package.
 
 ## A note on how the n8n workflows are wired (for when you're reviewing them)
 

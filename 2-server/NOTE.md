@@ -1,18 +1,38 @@
-# This folder is currently NOT being used
+# This folder IS the deployment path
 
-You chose **n8n Cloud** over self-hosting (see `GUIDE.md` at the repo root), so none of the
-files in this folder are part of the active deployment path right now — n8n Cloud handles
-the server, HTTPS, and database for you.
+The plan is to self-host n8n on a **permanently free Oracle Cloud "Always Free" ARM VM**
+(see `GUIDE.md` §2). n8n Community Edition is free forever for your own business use — only
+the server would normally cost money, and Oracle's Always Free tier makes that free too.
 
-Everything here (`docker-compose.yml`, `Caddyfile`, `.env.example`, `init-data.sh`,
-`setup-commands.sh`) is kept in case you switch to self-hosting later — e.g. if comment
-volume grows enough that n8n Cloud's execution limits or price stop making sense (self-hosted
-runs ~65 MAD/month total vs. n8n Cloud's ~260 MAD/month Starter plan). If that happens, this
-folder is ready to go — just follow `setup-commands.sh` block by block once you have a VPS
-and domain.
+Files here:
 
-Note: if you do migrate later, the workflow JSONs in `3-workflows/` currently use n8n's
-built-in **Data Table** node (works on both Cloud and self-hosted n8n ≥ 1.6x), not a separate
-Postgres database — so no workflow rework would be needed for that part for the migration
-itself, though you'd still want to run this folder's Postgres setup if you wanted a heavier-
-duty database for other reasons.
+- `docker-compose.yml` — n8n + Postgres + Caddy. Only ports 80/443 are public; n8n (5678) and
+  Postgres (5432) stay on the private Docker network.
+- `Caddyfile` — reverse proxy with automatic free Let's Encrypt HTTPS. Domain-free (it reads
+  the hostname from `.env`), so it works with a DuckDNS name like `fihakhir.duckdns.org`
+  exactly as it would with a paid domain.
+- `.env.example` — copy to `.env` on the server and fill in. All secrets get generated fresh
+  on the box by `setup-commands.sh`.
+- `init-data.sh` — creates the non-root Postgres user on first boot.
+- `setup-commands.sh` — the deploy, in numbered blocks. **Run block by block**, never as one
+  blind script.
+
+## Oracle-specific gotchas (read before deploying)
+
+1. **Two firewalls, not one.** You must open ports 80/443 in the OCI console (Networking →
+   VCN → Security Lists → Default → Add Ingress Rules, source `0.0.0.0/0`) *and* on the VM
+   itself. Oracle's Ubuntu images ship with an iptables REJECT rule that silently blocks
+   everything except SSH — Block 5 of `setup-commands.sh` handles the VM side. Forgetting the
+   console side is the most common "my server doesn't work" cause.
+2. **Pick an Always-Free-eligible shape**: `VM.Standard.A1.Flex` with at most 4 OCPU / 24 GB
+   total across your instances. The console labels eligible options "Always Free eligible".
+3. **Save the SSH private key** at instance creation — Oracle shows it once. Without it you
+   cannot reach your own server and would have to rebuild the VM.
+4. **ARM capacity errors are common.** "Out of host capacity" is Oracle being full, not
+   anything you did wrong — retry later, or at a different availability domain.
+
+## If you ever switch to a paid VPS
+
+Nothing here changes. The same files deploy identically to Hetzner/DigitalOcean/etc. — only
+`DOMAIN_NAME`/`SUBDOMAIN` in `.env` and the DNS record differ, and Block 5's iptables step
+becomes unnecessary (plain `ufw` is enough).
