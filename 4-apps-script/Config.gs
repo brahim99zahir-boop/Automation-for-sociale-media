@@ -1,10 +1,9 @@
 /**
  * Config.gs — all settings in one place.
  *
- * SECRETS DO NOT GO IN THIS FILE. They live in Script Properties, so they are
- * never committed to git and never visible in the shared code.
- * Set them once by running setSecrets() (see bottom), then DELETE the values you
- * typed there and save again.
+ * SECRETS DO NOT GO IN THIS FILE. They live in Script Properties, so they are never
+ * committed to git and never visible in the shared code. Set them once by running
+ * setSecrets(), then DELETE the values you typed and save again.
  */
 
 const CONFIG = {
@@ -12,96 +11,135 @@ const CONFIG = {
   OWNER_EMAIL: 'brahim99zahir@gmail.com',
 
   // ---- WhatsApp: the whole point of the system is to send people here ----
-  // Local form, written inside public replies exactly like this.
-  WHATSAPP_DISPLAY: '0666567672',
-  // International form (no +, no spaces) used to build clickable wa.me links.
-  WHATSAPP_INTL: '212666567672',
+  WHATSAPP_DISPLAY: '0666567672',      // written inside public replies exactly like this
+  WHATSAPP_INTL: '212666567672',       // used to build clickable wa.me links
 
   // The Google Sheet used as the Arabic client log.
   // Leave blank on first run — setupSheet() creates it and prints the ID to paste here.
   SPREADSHEET_ID: '',
   SHEET_NAME: 'العملاء',
 
-  // Instagram / Facebook. Fill after the Meta app step.
-  IG_USER_ID: '',
-  FB_PAGE_ID: '',
-
-  // Claude model. Haiku is the cheap one — do not change without checking cost.
+  // ---- Claude ----
   CLAUDE_MODEL: 'claude-haiku-4-5',
   ANTHROPIC_VERSION: '2023-06-01',
 
-  // How many recent posts to scan for new comments per run.
-  MEDIA_TO_SCAN: 5,
-
   // ---- Safety switches ----
-  // While true, NOTHING is ever posted publicly — replies are drafted, logged and
-  // emailed to you only. Keep true until you trust the drafts.
+  // While true, NOTHING is ever posted or sent publicly — replies are drafted, logged
+  // and emailed to you only. Keep true until you trust the drafts.
   DRAFT_ONLY_MODE: true,
 
   // While true, every reply waits for your approval, even harmless ones.
   // Set false once ~9/10 drafts are good as-is.
   ALWAYS_ASK_APPROVAL: true,
 
-  // ---- Private replies (DM) ----
-  // Instagram lets a business send ONE private message in response to a comment.
-  // This is the highest-converting feature here: the public reply stays short, and
-  // the DM carries a tappable wa.me link that opens WhatsApp with the message
-  // already written. Requires the pages_messaging permission on your Meta app.
-  // Leave false until the public replies are working; turn on afterwards.
-  SEND_PRIVATE_REPLY: false,
-
-  // Send a daily summary of leads at ~20:00. Turn off if you don't want it.
+  // Send a daily summary of leads at ~20:00.
   DAILY_SUMMARY: true,
 
-  // Meta webhook verification token — any string you choose; must match exactly
-  // what you type into the Meta App webhook screen.
+  // Meta webhook verification token — any string you choose; must match exactly what
+  // you type into the Meta App webhook screen.
   META_VERIFY_TOKEN: 'fihakhir-webhook-2026',
+
+  // How many recent posts/videos to scan per platform on each run.
+  MEDIA_TO_SCAN: 5,
+};
+
+/**
+ * ---- PLATFORMS ----
+ * Turn a channel on only after its credentials are in place. Everything starts off.
+ *
+ * `comments` = read and reply to comments.
+ * `dm`       = read and reply to direct messages.
+ *
+ * Honest status of each channel (checked July 2026):
+ *
+ *  instagram  comments ✅  DM ✅   Graph API. DMs need the pages_messaging permission.
+ *  facebook   comments ✅  DM ✅   Same Meta app and token as Instagram.
+ *  youtube    comments ✅  DM —    YouTube has no private messaging at all. Needs a
+ *                                  separate Google OAuth token (see SETUP.md).
+ *  tiktok     comments ✅  DM ❌   Possible ONLY through the official TikTok Business
+ *                                  API (business-api.tiktok.com), which you must apply
+ *                                  for and be approved. There is no DM API. Never use
+ *                                  a browser bot for TikTok — accounts get banned.
+ */
+const PLATFORMS = {
+  instagram: {
+    enabled: false,
+    comments: true,
+    dm: true,
+    igUserId: '',          // your Instagram professional account id
+  },
+  facebook: {
+    enabled: false,
+    comments: true,
+    dm: true,
+    pageId: '',            // your Facebook Page id
+  },
+  youtube: {
+    enabled: false,
+    comments: true,
+    dm: false,
+    channelId: '',         // your YouTube channel id (UC...)
+  },
+  tiktok: {
+    enabled: false,
+    comments: true,
+    dm: false,
+    businessId: '',        // TikTok Business API business id
+  },
 };
 
 /**
  * Topics the AI has no confirmed facts about. If a customer's comment mentions one,
  * the reply is held for your approval no matter what — because the model has been
- * observed inventing a confident "yes" to questions like "do you make sliding ones?".
+ * observed inventing a confident "yes" to questions it was never given answers to.
  * The prompt tells it not to; this is the seatbelt in case it does anyway.
  *
- * Once you give me the real answers, they move into facts-for-ai.md and come OUT of
- * this list, so the AI can answer them instantly on its own.
+ * Answered topics (colours, sliding, guarantee-exists) have been REMOVED from this list
+ * because they're now in facts-for-ai.md — the AI can answer them on its own.
+ * What stays here is what genuinely has no confirmed answer.
  */
 const UNVERIFIED_TOPICS = [
-  'ضمان',        // guarantee
-  'لون', 'ألوان', 'الوان',   // colours
-  'منزلق', 'منزلقة',          // sliding
-  'كادر', 'إطار',             // frame
-  'مصنوع', 'من اش', 'مناش',   // what it's made of
-  'حديد', 'بلاستيك', 'ألمنيوم', 'الومنيوم',
-  'كيدوم', 'يدوم',            // how long it lasts
-  'ترجيع', 'إرجاع',           // returns
+  'مصنوع', 'من اش', 'مناش',              // what it's made of
+  'حديد', 'بلاستيك', 'ألمنيوم', 'الومنيوم', // materials
+  'كيدوم', 'يدوم', 'مدة الضمان',          // lifespan / guarantee duration
+  'ترجيع', 'إرجاع', 'استرجاع',            // returns
+  'فوقاش غادي', 'شحال من يوم',            // exact promised dates
+  // Promotions: only you know whether one is running. The model was caught replying
+  // "no, there's no promo right now", which would be wrong the moment you run one.
+  'بروومو', 'برومو', 'تخفيض', 'تخفيضات', 'رخيص شوية', 'promo', 'reduction',
 ];
 
 /** Property keys (internal — no need to change). */
 const PROP = {
   ANTHROPIC_KEY: 'ANTHROPIC_API_KEY',
   META_TOKEN: 'META_ACCESS_TOKEN',
+  YOUTUBE_TOKEN: 'YOUTUBE_ACCESS_TOKEN',
+  TIKTOK_TOKEN: 'TIKTOK_ACCESS_TOKEN',
   SEEN_IDS: 'SEEN_COMMENT_IDS',
   PENDING_PREFIX: 'pending_',
 };
 
 /**
- * ONE-TIME SETUP: paste your secrets between the quotes, click Run, then DELETE
- * them from this function and save again. They're stored in Script Properties,
- * which is not part of the source file.
+ * ONE-TIME SETUP: paste secrets between the quotes, click Run, then DELETE them from
+ * this function and save again. They're stored in Script Properties, not in the source.
  */
 function setSecrets() {
   const props = PropertiesService.getScriptProperties();
 
-  const anthropicKey = '';   // <-- paste Anthropic API key, Run, then clear
-  const metaToken = '';      // <-- paste Meta long-lived Page token
+  const anthropicKey = '';   // Anthropic API key
+  const metaToken = '';      // Meta long-lived Page token (Instagram + Facebook)
+  const youtubeToken = '';   // Google OAuth access token (YouTube) — optional
+  const tiktokToken = '';    // TikTok Business API token — optional
 
   if (anthropicKey) props.setProperty(PROP.ANTHROPIC_KEY, anthropicKey);
   if (metaToken) props.setProperty(PROP.META_TOKEN, metaToken);
+  if (youtubeToken) props.setProperty(PROP.YOUTUBE_TOKEN, youtubeToken);
+  if (tiktokToken) props.setProperty(PROP.TIKTOK_TOKEN, tiktokToken);
 
-  Logger.log('Anthropic key set: ' + !!props.getProperty(PROP.ANTHROPIC_KEY));
-  Logger.log('Meta token set: ' + !!props.getProperty(PROP.META_TOKEN));
+  Logger.log('Anthropic: ' + !!props.getProperty(PROP.ANTHROPIC_KEY));
+  Logger.log('Meta:      ' + !!props.getProperty(PROP.META_TOKEN));
+  Logger.log('YouTube:   ' + !!props.getProperty(PROP.YOUTUBE_TOKEN));
+  Logger.log('TikTok:    ' + !!props.getProperty(PROP.TIKTOK_TOKEN));
   Logger.log('Now DELETE the pasted values above and save this file again.');
 }
 
@@ -109,4 +147,8 @@ function getSecret_(key) {
   const v = PropertiesService.getScriptProperties().getProperty(key);
   if (!v) throw new Error('Missing secret: ' + key + ' — run setSecrets() first.');
   return v;
+}
+
+function hasSecret_(key) {
+  return !!PropertiesService.getScriptProperties().getProperty(key);
 }

@@ -1,86 +1,112 @@
 /**
- * Code.gs — AI comment-reply system for فيها خير (Mosiquaire), on Google Apps Script.
+ * Code.gs — AI reply system for فيها خير (Mosiquaire), on Google Apps Script.
  *
- * The job of this system is not "answer comments" — it's to move interested people to
- * WhatsApp, because that's where the business actually sells. Every piece below serves that.
+ * The job is not "answer messages" — it's to move interested people to WhatsApp, because
+ * that's where the business sells. Every part below serves that.
  *
- * Flow:
- *   checkForNewComments()  [timer, every 15 min]
- *     -> fetch recent Instagram comments
- *     -> skip ones already handled
- *     -> ask Claude for a reply + Arabic client_type + lead temperature
- *     -> guard: unverifiable spec claims are held for human review no matter what
- *     -> risky/uncertain -> email you Approve/Reject; nothing posted yet
- *        safe + trusted   -> post publicly, and optionally DM a tappable WhatsApp link
- *     -> log every outcome to the Arabic Google Sheet
+ * Channels are handled by the adapters in Platforms.gs, so this file stays the same
+ * whether a message came from Instagram, Facebook, YouTube or TikTok, and whether it was
+ * a public comment or a private DM.
  *
- *   doGet()   Meta webhook verification + your Approve/Reject clicks
- *   doPost()  live Instagram/Facebook comment webhooks (optional; polling alone works)
- *   dailySummary()  evening digest of the day's leads
+ *   checkEverything()   [timer, every 15 min]
+ *     for each enabled platform:
+ *       pull new comments (and DMs where the platform supports them)
+ *       -> ask Claude for a reply + Arabic client_type + lead temperature
+ *       -> guard: unverifiable claims are held for human review no matter what
+ *       -> risky/uncertain -> email you Approve/Reject; nothing sent yet
+ *          safe + trusted   -> reply publicly, and DM warm leads a tappable WhatsApp link
+ *       -> log every outcome to the Arabic Google Sheet
  *
- * Safety: while CONFIG.DRAFT_ONLY_MODE is true, nothing is ever posted publicly.
+ *   doGet()        Meta webhook verification + your Approve/Reject clicks
+ *   doPost()       live Instagram/Facebook webhooks (optional; polling alone works)
+ *   dailySummary() evening digest of the day's leads
+ *
+ * Safety: while CONFIG.DRAFT_ONLY_MODE is true, nothing is ever posted or sent.
  */
 
-const GRAPH = 'https://graph.facebook.com/v21.0/';
-
 // ---------------------------------------------------------------------------
-// MAIN ENTRY POINT — installTrigger() attaches a timer to this
+// MAIN ENTRY POINT — installTrigger() attaches the timer to this
 // ---------------------------------------------------------------------------
 
-function checkForNewComments() {
+function checkEverything() {
   const lock = LockService.getScriptLock();
-  // If the previous run is still going, skip rather than risk double-replying.
   if (!lock.tryLock(5000)) {
     Logger.log('Another run is in progress; skipping.');
     return;
   }
   try {
-    const comments = fetchRecentComments_();
-    Logger.log('Fetched ' + comments.length + ' comment(s).');
-
-    let handled = 0;
-    for (const c of comments) {
-      if (isAlreadySeen_(c.id)) continue;
-      markSeen_(c.id);    // mark BEFORE processing, so a crash can't cause a re-reply
-      try {
-        processComment_(c);
-        handled++;
-      } catch (err) {
-        notifyError_('processComment', err, JSON.stringify(c));
-      }
+    let total = 0;
+    for (const name of Object.keys(PLATFORMS)) {
+      const cfg = PLATFORMS[name];
+      if (!cfg.enabled) continue;
+      total += runPlatform_(name, cfg);
     }
-    Logger.log('Processed ' + handled + ' new comment(s).');
+    Logger.log('Handled ' + total + ' new message(s) across all platforms.');
   } catch (err) {
-    notifyError_('checkForNewComments', err, '');
+    notifyError_('checkEverything', err, '');
   } finally {
     lock.releaseLock();
   }
 }
 
-/**
- * Core per-comment logic, shared by the poller and the webhook.
- */
-function processComment_(comment) {
-  const ai = generateReply_(comment.text);
+/** Pull and process everything for one platform. Returns how many were handled. */
+function runPlatform_(name, cfg) {
+  const adapter = adapterFor_(name);
+  let handled = 0;
+  const batch = [];
 
-  // Nothing worth saying (tag, emoji, spam) — log it and move on without replying.
+  // A failure on one channel must not stop the others.
+  if (cfg.comments && adapter.fetchComments) {
+    try {
+      batch.push.apply(batch, adapter.fetchComments());
+    } catch (err) {
+      notifyError_(name + '/fetchComments', err, '');
+    }
+  }
+  if (cfg.dm && adapter.fetchDMs) {
+    try {
+      batch.push.apply(batch, adapter.fetchDMs());
+    } catch (err) {
+      notifyError_(name + '/fetchDMs', err, '');
+    }
+  }
+
+  for (const msg of batch) {
+    if (isAlreadySeen_(msg.id)) continue;
+    markSeen_(msg.id);      // mark BEFORE processing, so a crash can't cause a re-reply
+    try {
+      processMessage_(msg);
+      handled++;
+    } catch (err) {
+      notifyError_(name + '/process', err, JSON.stringify(msg));
+    }
+  }
+  Logger.log(name + ': ' + handled + ' new of ' + batch.length + ' fetched.');
+  return handled;
+}
+
+/**
+ * Core per-message logic — identical for every platform and for comments vs DMs.
+ */
+function processMessage_(msg) {
+  const ai = generateReply_(msg);
+
+  // Nothing worth saying (tag, emoji, spam) — log and move on.
   if (!ai.reply || !ai.reply.trim()) {
-    logToSheet_(comment, ai, 'تجاهل — ماشي سؤال');
+    logToSheet_(msg, ai, 'تجاهل — ماشي سؤال');
     return;
   }
 
-  // Seatbelt: the model has been seen inventing a confident "yes" about specs it was
-  // never told (colours, sliding models, guarantees). If the customer asked about one
-  // of those, a human checks before anything goes public.
-  const risky = mentionsUnverifiedTopic_(comment.text);
+  // Seatbelt: the model has been caught inventing confident answers about things it
+  // was never told. If the customer asked about one of those, a human checks first.
+  const risky = mentionsUnverifiedTopic_(msg.text);
   if (risky) ai.guard = risky;
 
   const needsHuman = ai.needs_human || !!risky || CONFIG.ALWAYS_ASK_APPROVAL;
 
   if (!needsHuman && !CONFIG.DRAFT_ONLY_MODE) {
-    postReply_(comment.id, ai.reply);
-    maybeSendPrivateReply_(comment, ai);
-    logToSheet_(comment, ai, 'تم الرد تلقائيًا');
+    deliver_(msg, ai);
+    logToSheet_(msg, ai, msg.kind === 'dm' ? 'تجاوب ف الرسائل' : 'تم الرد تلقائيًا');
     return;
   }
 
@@ -89,10 +115,7 @@ function processComment_(comment) {
   PropertiesService.getScriptProperties().setProperty(
     PROP.PENDING_PREFIX + token,
     JSON.stringify({
-      commentId: comment.id,
-      text: comment.text,
-      author: comment.author,
-      platform: comment.platform,
+      msg: msg,
       reply: ai.reply,
       client_type: ai.client_type,
       lead: ai.lead,
@@ -100,13 +123,50 @@ function processComment_(comment) {
     })
   );
 
-  sendApprovalEmail_(comment, ai, token);
-  logToSheet_(comment, ai, CONFIG.DRAFT_ONLY_MODE
+  sendApprovalEmail_(msg, ai, token);
+  logToSheet_(msg, ai, CONFIG.DRAFT_ONLY_MODE
     ? 'مسودة — بانتظار موافقتك (وضع الاختبار)'
     : 'بانتظار موافقتك');
 }
 
-/** Returns the matched topic word, or '' if the comment is clear. */
+/**
+ * Actually send the reply. Blocked entirely while DRAFT_ONLY_MODE is on.
+ * For public comments from warm/hot leads we also try a private reply carrying a
+ * tappable wa.me link — a phone number in a comment isn't clickable, a DM link is.
+ */
+function deliver_(msg, ai) {
+  if (CONFIG.DRAFT_ONLY_MODE) {
+    Logger.log('DRAFT_ONLY_MODE on — not sending. Would have replied: ' + ai.reply);
+    return;
+  }
+  const adapter = adapterFor_(msg.platform);
+
+  if (msg.kind === 'dm') {
+    if (!adapter.sendDM) throw new Error(msg.platform + ' has no DM support');
+    adapter.sendDM(msg.threadId, ai.reply);
+    return;
+  }
+
+  adapter.postReply(msg.id, ai.reply);
+  maybePrivateReply_(msg, ai);
+}
+
+/** Instagram allows one private message in response to a comment. Only for real leads. */
+function maybePrivateReply_(msg, ai) {
+  if (msg.platform !== 'instagram') return;              // only Instagram supports this
+  if (!PLATFORMS.instagram.dm) return;
+  if (ai.lead !== 'ساخن' && ai.lead !== 'دافئ') return;  // never spam cold commenters
+
+  try {
+    Instagram.privateReplyToComment(msg.id,
+      'إلا بغيتي الثمن بالضبط، صيفط لينا القياس ديال الشباك هنا:\n' +
+      whatsappLink_(msg.author));
+  } catch (err) {
+    Logger.log('Private reply skipped: ' + err);   // never let a DM failure break the flow
+  }
+}
+
+/** Returns the matched topic word, or '' if the message is clear. */
 function mentionsUnverifiedTopic_(text) {
   const t = String(text || '');
   for (const topic of UNVERIFIED_TOPICS) {
@@ -119,13 +179,50 @@ function mentionsUnverifiedTopic_(text) {
 // CLAUDE
 // ---------------------------------------------------------------------------
 
-function generateReply_(commentText) {
-  const raw = callClaudeWithRetry_(commentText);
+function generateReply_(msg) {
+  // Tell the model where it's replying — a public comment and a private DM are
+  // different rooms, and the playbook gives them different rules.
+  const where = msg.kind === 'dm'
+    ? '[رسالة خاصة على ' + msg.platform + ' من @' + msg.author + ']'
+    : '[تعليق عام على ' + msg.platform + ' من @' + msg.author + ']';
+
+  // Script matching, decided in code rather than left to the model.
+  // Asking it to "notice" the script only worked ~5/9 of the time in testing; stating
+  // the answer outright is deterministic. Replying to Latin-script Darija in Arabic
+  // script is the most obvious bot tell there is, so this is worth pinning down.
+  const script = detectScript_(msg.text);
+  const instruction = SCRIPT_INSTRUCTION[script];
+
+  const raw = callClaudeWithRetry_(where + '\n' + instruction + '\n\n' + msg.text);
   return parseAiJson_(raw);
 }
 
-/** One retry on 429/5xx — transient API hiccups shouldn't lose a customer. */
-function callClaudeWithRetry_(commentText) {
+const SCRIPT_INSTRUCTION = {
+  latin: '[SCRIPT: the customer wrote Darija in LATIN letters. Your "reply" MUST be in ' +
+         'Latin letters too (e.g. "470 dh l metre. sift lia l9ias f whatsapp ' +
+         '0666567672"). Do NOT reply in Arabic script.]',
+  french: '[SCRIPT: the customer wrote French. Reply in simple French, prices as "470 DH".]',
+  arabic: '[SCRIPT: the customer wrote Arabic letters. Reply in Arabic-script Darija.]',
+};
+
+/**
+ * Which script did they use? Counts Arabic vs Latin characters, then separates
+ * French from Latin-script Darija by looking for French function words.
+ */
+function detectScript_(text) {
+  const s = String(text || '');
+  const arabic = (s.match(/[؀-ۿ]/g) || []).length;
+  const latin = (s.match(/[a-zA-Z]/g) || []).length;
+
+  if (arabic >= latin) return 'arabic';
+
+  // Latin-dominant: French, or Darija typed in Latin letters?
+  const french = /\b(bonjour|bonsoir|merci|combien|prix|est-ce|vous|votre|je|c'est|s'il|pour|avec|livraison)\b/i;
+  return french.test(s) ? 'french' : 'latin';
+}
+
+/** One retry on 429/5xx — a transient API hiccup shouldn't lose a customer. */
+function callClaudeWithRetry_(userContent) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post',
@@ -138,7 +235,7 @@ function callClaudeWithRetry_(commentText) {
         model: CONFIG.CLAUDE_MODEL,
         max_tokens: 400,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: commentText }],
+        messages: [{ role: 'user', content: userContent }],
       }),
       muteHttpExceptions: true,
     });
@@ -146,8 +243,7 @@ function callClaudeWithRetry_(commentText) {
     const code = res.getResponseCode();
     if (code === 200) return JSON.parse(res.getContentText()).content[0].text;
 
-    const retryable = (code === 429 || code >= 500);
-    if (!retryable || attempt === 2) {
+    if ((code !== 429 && code < 500) || attempt === 2) {
       throw new Error('Anthropic API ' + code + ': ' + res.getContentText().slice(0, 400));
     }
     Utilities.sleep(2000);
@@ -157,7 +253,7 @@ function callClaudeWithRetry_(commentText) {
 /**
  * Claude wraps its JSON in ```json fences and sometimes adds prose after it (confirmed
  * against the live API), so a plain JSON.parse fails. Strip fences, then take the first
- * balanced {...} block. Anything unparseable fails SAFE: held for a human, never posted.
+ * balanced {...} block. Anything unparseable fails SAFE: held for a human, never sent.
  */
 function parseAiJson_(rawInput) {
   const raw = String(rawInput).replace(/```(?:json)?/gi, '').trim();
@@ -179,8 +275,7 @@ function parseAiJson_(rawInput) {
       if (depth === 0) {
         try {
           const p = JSON.parse(raw.slice(start, i + 1));
-          // An intentionally empty reply (spam) is valid — don't force it to human review.
-          if (typeof p.reply !== 'string') return fallback;
+          if (typeof p.reply !== 'string') return fallback;   // empty reply is valid (spam)
           return {
             reply: p.reply,
             needs_human: p.needs_human === true,
@@ -196,101 +291,9 @@ function parseAiJson_(rawInput) {
   return fallback;
 }
 
-// ---------------------------------------------------------------------------
-// INSTAGRAM / FACEBOOK
-// ---------------------------------------------------------------------------
-
-function fetchRecentComments_() {
-  if (!CONFIG.IG_USER_ID) {
-    Logger.log('IG_USER_ID not set yet — nothing to poll.');
-    return [];
-  }
-  const token = getSecret_(PROP.META_TOKEN);
-  const out = [];
-
-  const mediaUrl = GRAPH + CONFIG.IG_USER_ID + '/media?fields=id&limit=' +
-    CONFIG.MEDIA_TO_SCAN + '&access_token=' + encodeURIComponent(token);
-  const media = graphGet_(mediaUrl).data || [];
-
-  for (const m of media) {
-    const cUrl = GRAPH + m.id +
-      '/comments?fields=id,text,username,timestamp&limit=25&access_token=' +
-      encodeURIComponent(token);
-    const comments = (graphGet_(cUrl).data) || [];
-    for (const c of comments) {
-      if (!c.text) continue;
-      out.push({
-        id: c.id,
-        text: c.text,
-        author: c.username || 'unknown',
-        platform: 'instagram',
-        postId: m.id,
-      });
-    }
-  }
-  return out;
-}
-
-function graphGet_(url) {
-  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  const body = res.getContentText();
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Graph API ' + res.getResponseCode() + ': ' + body.slice(0, 400));
-  }
-  return JSON.parse(body);
-}
-
-/** Post a public reply. Blocked entirely while DRAFT_ONLY_MODE is on. */
-function postReply_(commentId, message) {
-  if (CONFIG.DRAFT_ONLY_MODE) {
-    Logger.log('DRAFT_ONLY_MODE on — not posting. Would have replied: ' + message);
-    return { skipped: true };
-  }
-  const res = UrlFetchApp.fetch(GRAPH + commentId + '/replies', {
-    method: 'post',
-    payload: { message: message, access_token: getSecret_(PROP.META_TOKEN) },
-    muteHttpExceptions: true,
-  });
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Post reply failed ' + res.getResponseCode() + ': ' +
-      res.getContentText().slice(0, 400));
-  }
-  return JSON.parse(res.getContentText());
-}
-
-/**
- * Instagram allows ONE private message in response to a comment. A tappable wa.me
- * link in a DM converts far better than a phone number in a public comment, because
- * it opens WhatsApp with the message already typed — no copying, no saving a contact.
- * Only fired for people showing real buying intent, so it never feels like spam.
- */
-function maybeSendPrivateReply_(comment, ai) {
-  if (!CONFIG.SEND_PRIVATE_REPLY || CONFIG.DRAFT_ONLY_MODE) return;
-  if (ai.lead !== 'ساخن' && ai.lead !== 'دافئ') return;
-
-  try {
-    const link = whatsappLink_(comment.author);
-    const msg = 'إلا بغيتي الثمن بالضبط، صيفط لينا القياس ديال الشباك هنا:\n' + link;
-    const res = UrlFetchApp.fetch(GRAPH + CONFIG.IG_USER_ID + '/messages', {
-      method: 'post',
-      payload: {
-        recipient: JSON.stringify({ comment_id: comment.id }),
-        message: JSON.stringify({ text: msg }),
-        access_token: getSecret_(PROP.META_TOKEN),
-      },
-      muteHttpExceptions: true,
-    });
-    if (res.getResponseCode() !== 200) {
-      Logger.log('Private reply skipped: ' + res.getContentText().slice(0, 200));
-    }
-  } catch (err) {
-    Logger.log('Private reply failed: ' + err);   // never let a DM failure break the flow
-  }
-}
-
-/** wa.me link that opens WhatsApp with the first message pre-written. */
+/** wa.me link that opens WhatsApp with the first message already written. */
 function whatsappLink_(username) {
-  const text = 'السلام عليكم، جاي من الانستغرام' +
+  const text = 'السلام عليكم، جاي من السوشيال ميديا' +
     (username ? ' (@' + username + ')' : '') + '، بغيت نسول على الموستيكير';
   return 'https://wa.me/' + CONFIG.WHATSAPP_INTL + '?text=' + encodeURIComponent(text);
 }
@@ -320,53 +323,63 @@ function handleApproval_(action, token) {
   const raw = props.getProperty(key);
 
   if (!raw) {
-    return html_('انتهت الصلاحية', 'هاد الطلب تعالج من قبل، ولا ما بقاش موجود.');
+    return html_('انتهات الصلاحية', 'هاد الطلب تعالج من قبل، ولا ما بقاش موجود.');
   }
   const pending = JSON.parse(raw);
-  props.deleteProperty(key);   // single-use: a re-click can't post twice
+  props.deleteProperty(key);   // single-use: a re-click can't send twice
 
-  if (action === 'approve') {
-    if (CONFIG.DRAFT_ONLY_MODE) {
-      updateSheetStatus_('موافق عليه — ولكن ما تنشرش (وضع الاختبار)');
-      return html_('تمت الموافقة',
-        'وضع الاختبار مفعل، لذلك ما تنشر والو. طفي DRAFT_ONLY_MODE باش ينشر بصح.');
-    }
-    try {
-      postReply_(pending.commentId, pending.reply);
-      maybeSendPrivateReply_(
-        { id: pending.commentId, author: pending.author, platform: pending.platform },
-        { lead: pending.lead });
-      updateSheetStatus_('تمت الموافقة ونُشر');
-      return html_('تنشر ✅', escapeHtml_(pending.reply));
-    } catch (err) {
-      notifyError_('handleApproval/post', err, pending.commentId);
-      return html_('خطأ', 'ما قدرناش ننشرو الرد: ' + escapeHtml_(String(err)));
-    }
+  if (action !== 'approve') {
+    updateSheetStatus_('مرفوض — ما تنشرش');
+    return html_('تم الرفض', 'ما تصيفط والو.');
   }
 
-  updateSheetStatus_('مرفوض — ما تنشرش');
-  return html_('تم الرفض', 'ما تنشر والو.');
+  if (CONFIG.DRAFT_ONLY_MODE) {
+    updateSheetStatus_('موافق عليه — ولكن ما تصيفطش (وضع الاختبار)');
+    return html_('تمت الموافقة',
+      'وضع الاختبار مفعل، لذلك ما تصيفط والو. طفي DRAFT_ONLY_MODE باش يخدم بصح.');
+  }
+
+  try {
+    deliver_(pending.msg, { reply: pending.reply, lead: pending.lead });
+    updateSheetStatus_('تمت الموافقة وتصيفط');
+    return html_('تصيفط ✅', escapeHtml_(pending.reply));
+  } catch (err) {
+    notifyError_('handleApproval/send', err, JSON.stringify(pending.msg));
+    return html_('خطأ', 'ما قدرناش نصيفطو: ' + escapeHtml_(String(err)));
+  }
 }
 
-/** Live webhook (optional — polling alone also works). */
+/** Live Meta webhook (optional — polling alone also works). */
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    const platform = body.object === 'instagram' ? 'instagram' : 'facebook';
+
     for (const entry of (body.entry || [])) {
+      // Comments
       for (const change of (entry.changes || [])) {
         const v = change.value || {};
         if (change.field !== 'comments' && change.field !== 'feed') continue;
         const id = v.id || v.comment_id;
         const text = v.text || v.message;
-        if (!id || !text) continue;
-        if (isAlreadySeen_(id)) continue;
+        if (!id || !text || isAlreadySeen_(id)) continue;
         markSeen_(id);
-        processComment_({
-          id: id,
-          text: text,
+        processMessage_({
+          id: id, text: text,
           author: (v.from && (v.from.username || v.from.name)) || 'unknown',
-          platform: body.object === 'instagram' ? 'instagram' : 'facebook',
-          postId: v.media ? v.media.id : v.post_id,
+          platform: platform, postId: v.media ? v.media.id : v.post_id, kind: 'comment',
+        });
+      }
+      // Direct messages
+      for (const m of (entry.messaging || [])) {
+        if (!m.message || !m.message.text || m.message.is_echo) continue;
+        const id = m.message.mid;
+        if (!id || isAlreadySeen_(id)) continue;
+        markSeen_(id);
+        processMessage_({
+          id: id, text: m.message.text,
+          author: (m.sender && m.sender.id) || 'unknown',
+          platform: platform, threadId: m.sender && m.sender.id, kind: 'dm',
         });
       }
     }
@@ -381,49 +394,54 @@ function doPost(e) {
 // ---------------------------------------------------------------------------
 
 const LEAD_COLOUR = { 'ساخن': '#dc2626', 'دافئ': '#ea580c', 'بارد': '#64748b' };
+const PLATFORM_LABEL = {
+  instagram: 'إنستغرام', facebook: 'فيسبوك', youtube: 'يوتيوب', tiktok: 'تيك توك',
+};
 
-function sendApprovalEmail_(comment, ai, token) {
+function sendApprovalEmail_(msg, ai, token) {
   const base = ScriptApp.getService().getUrl();
   const approve = base + '?action=approve&token=' + token;
   const reject = base + '?action=reject&token=' + token;
   const colour = LEAD_COLOUR[ai.lead] || '#64748b';
+  const where = (PLATFORM_LABEL[msg.platform] || msg.platform) +
+    (msg.kind === 'dm' ? ' — رسالة خاصة' : ' — تعليق');
 
   const guardNote = ai.guard
-    ? '<p style="background:#fef2f2;border-right:4px solid #dc2626;padding:10px;border-radius:6px">' +
-      '<b>راه سول على: "' + escapeHtml_(ai.guard) + '"</b><br>' +
+    ? '<p style="background:#fef2f2;border-right:4px solid #dc2626;padding:10px;' +
+      'border-radius:6px"><b>راه سول على: "' + escapeHtml_(ai.guard) + '"</b><br>' +
       'ما عندناش معلومة مؤكدة على هادشي، لذلك حبسناه ليك. قرا الرد مزيان قبل ما توافق.</p>'
     : '';
 
   const draftNote = CONFIG.DRAFT_ONLY_MODE
-    ? '<p style="color:#b45309"><b>وضع الاختبار مفعل</b> — حتى إلا وافقتي، ما غادي ينشر والو.</p>'
+    ? '<p style="color:#b45309"><b>وضع الاختبار مفعل</b> — حتى إلا وافقتي، ما غادي يتصيفط والو.</p>'
     : '';
 
   const html =
     '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px">' +
       '<div style="display:inline-block;background:' + colour + ';color:#fff;padding:4px 12px;' +
         'border-radius:99px;font-size:13px">' + escapeHtml_(ai.lead || '') + '</div>' +
-      '<h2 style="margin:8px 0 2px">تعليق جديد</h2>' +
-      '<p style="color:#666;margin:0 0 14px">' + escapeHtml_(comment.platform) + ' — @' +
-        escapeHtml_(comment.author) + ' — ' + escapeHtml_(ai.client_type) + '</p>' +
+      '<h2 style="margin:8px 0 2px">' + escapeHtml_(where) + '</h2>' +
+      '<p style="color:#666;margin:0 0 14px">@' + escapeHtml_(msg.author) + ' — ' +
+        escapeHtml_(ai.client_type) + '</p>' +
       guardNote + draftNote +
       '<p style="background:#f3f4f6;padding:12px;border-radius:8px">' +
-        escapeHtml_(comment.text) + '</p>' +
-      '<p style="margin-bottom:4px"><b>الرد ديال الذكاء الاصطناعي:</b></p>' +
+        escapeHtml_(msg.text) + '</p>' +
+      '<p style="margin-bottom:4px"><b>الرد المقترح:</b></p>' +
       '<p style="background:#ecfdf5;padding:12px;border-radius:8px">' +
         escapeHtml_(ai.reply) + '</p>' +
       '<p style="margin-top:22px">' +
         '<a href="' + approve + '" style="background:#16a34a;color:#fff;padding:12px 24px;' +
-          'text-decoration:none;border-radius:6px;margin-left:8px">وافق وانشر</a>' +
+          'text-decoration:none;border-radius:6px;margin-left:8px">وافق وصيفط</a>' +
         '<a href="' + reject + '" style="background:#dc2626;color:#fff;padding:12px 24px;' +
           'text-decoration:none;border-radius:6px">ارفض</a>' +
       '</p>' +
-      '<p style="margin-top:18px"><a href="' + whatsappLink_(comment.author) + '">' +
+      '<p style="margin-top:18px"><a href="' + whatsappLink_(msg.author) + '">' +
         'ولا بدا معاه الحديث ديريكت ف الواتساب ←</a></p>' +
       '<p style="color:#9ca3af;font-size:12px;margin-top:22px">الروابط كيخدموا مرة وحدة.</p>' +
     '</div>';
 
   GmailApp.sendEmail(CONFIG.OWNER_EMAIL,
-    (ai.lead === 'ساخن' ? '🔥 ' : '') + 'رد جديد — @' + comment.author,
+    (ai.lead === 'ساخن' ? '🔥 ' : '') + where + ' — @' + msg.author,
     ai.reply,
     { htmlBody: html, name: 'فيها خير — نظام الرد الآلي' });
 }
@@ -440,10 +458,7 @@ function notifyError_(where, err, context) {
   }
 }
 
-/**
- * Evening digest: what came in today, and which leads are worth chasing on WhatsApp.
- * Attach a daily trigger with installTrigger().
- */
+/** Evening digest: what came in today, and which leads to chase on WhatsApp. */
 function dailySummary() {
   if (!CONFIG.DAILY_SUMMARY) return;
   try {
@@ -451,21 +466,21 @@ function dailySummary() {
     const today = Utilities.formatDate(new Date(), 'Africa/Casablanca', 'yyyy-MM-dd');
     const rows = sh.getDataRange().getValues().slice(1)
       .filter(r => String(r[0]).indexOf(today) === 0);
-
     if (!rows.length) return;   // nothing happened; don't send an empty email
 
-    const hot = rows.filter(r => r[5] === 'ساخن');
-    const warm = rows.filter(r => r[5] === 'دافئ');
+    const hot = rows.filter(r => r[6] === 'ساخن');
+    const warm = rows.filter(r => r[6] === 'دافئ');
 
     let html = '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px">' +
       '<h2>ملخص اليوم — ' + today + '</h2>' +
-      '<p>' + rows.length + ' تعليق • <b style="color:#dc2626">' + hot.length +
+      '<p>' + rows.length + ' رسالة • <b style="color:#dc2626">' + hot.length +
       ' ساخن</b> • ' + warm.length + ' دافئ</p>';
 
     if (hot.length) {
       html += '<h3>الزبناء الساخنين — تبعهم ف الواتساب</h3><ul>';
       hot.forEach(r => {
-        html += '<li><b>@' + escapeHtml_(r[2]) + '</b> — ' + escapeHtml_(r[3]) + '</li>';
+        html += '<li><b>@' + escapeHtml_(r[3]) + '</b> (' + escapeHtml_(r[1]) + ') — ' +
+          escapeHtml_(r[4]) + '</li>';
       });
       html += '</ul>';
     }
@@ -474,7 +489,7 @@ function dailySummary() {
 
     GmailApp.sendEmail(CONFIG.OWNER_EMAIL,
       'ملخص اليوم — ' + hot.length + ' زبون ساخن',
-      rows.length + ' تعليق اليوم',
+      rows.length + ' رسالة اليوم',
       { htmlBody: html, name: 'فيها خير — نظام الرد الآلي' });
   } catch (err) {
     Logger.log('dailySummary failed: ' + err);
@@ -485,7 +500,7 @@ function dailySummary() {
 // GOOGLE SHEET (Arabic client log)
 // ---------------------------------------------------------------------------
 
-const HEADERS = ['التاريخ', 'المنصة', 'اسم العميل', 'التعليق',
+const HEADERS = ['التاريخ', 'المنصة', 'النوع', 'اسم العميل', 'الرسالة',
                  'نوع العميل', 'درجة الاهتمام', 'الرد', 'الحالة'];
 
 /** Run once. Creates the spreadsheet with Arabic headers and logs its ID. */
@@ -500,18 +515,17 @@ function setupSheet() {
     .setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
   sh.setRightToLeft(true);
   sh.setFrozenRows(1);
-  sh.setColumnWidth(4, 280);
-  sh.setColumnWidth(7, 280);
+  sh.setColumnWidth(5, 260);
+  sh.setColumnWidth(8, 260);
 
   // Colour the lead column so hot leads jump out at a glance.
-  const leadCol = sh.getRange('F2:F1000');
-  const rules = [
+  const leadCol = sh.getRange('G2:G2000');
+  sh.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('ساخن')
       .setBackground('#fee2e2').setFontColor('#991b1b').setRanges([leadCol]).build(),
     SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('دافئ')
       .setBackground('#ffedd5').setFontColor('#9a3412').setRanges([leadCol]).build(),
-  ];
-  sh.setConditionalFormatRules(rules);
+  ]);
 
   Logger.log('Spreadsheet ready: ' + ss.getUrl());
   Logger.log('PASTE THIS INTO Config.gs SPREADSHEET_ID: ' + ss.getId());
@@ -525,13 +539,14 @@ function getSheet_() {
   return sh;
 }
 
-function logToSheet_(comment, ai, status) {
+function logToSheet_(msg, ai, status) {
   try {
     getSheet_().appendRow([
       Utilities.formatDate(new Date(), 'Africa/Casablanca', 'yyyy-MM-dd HH:mm'),
-      comment.platform,
-      comment.author,
-      comment.text,
+      PLATFORM_LABEL[msg.platform] || msg.platform,
+      msg.kind === 'dm' ? 'رسالة خاصة' : 'تعليق',
+      msg.author,
+      msg.text,
       ai.client_type,
       ai.lead || '',
       ai.reply,
@@ -548,9 +563,9 @@ function updateSheetStatus_(status) {
     const sh = getSheet_();
     const last = sh.getLastRow();
     for (let r = last; r > 1 && r > last - 50; r--) {
-      const cur = String(sh.getRange(r, 8).getValue());
+      const cur = String(sh.getRange(r, 9).getValue());
       if (cur.indexOf('بانتظار') === 0 || cur.indexOf('مسودة') === 0) {
-        sh.getRange(r, 8).setValue(status);
+        sh.getRange(r, 9).setValue(status);
         return;
       }
     }
@@ -569,7 +584,7 @@ function markSeen_(id) {
   const list = seenList_();
   list.push(id);
   PropertiesService.getScriptProperties()
-    .setProperty(PROP.SEEN_IDS, JSON.stringify(list.slice(-500)));
+    .setProperty(PROP.SEEN_IDS, JSON.stringify(list.slice(-800)));
 }
 
 function seenList_() {
@@ -598,40 +613,62 @@ function escapeHtml_(s) {
 function installTrigger() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const f = t.getHandlerFunction();
-    if (f === 'checkForNewComments' || f === 'dailySummary') ScriptApp.deleteTrigger(t);
+    if (f === 'checkEverything' || f === 'dailySummary') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('checkForNewComments').timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger('checkEverything').timeBased().everyMinutes(15).create();
   if (CONFIG.DAILY_SUMMARY) {
     ScriptApp.newTrigger('dailySummary').timeBased().atHour(20).everyDays(1).create();
   }
-  Logger.log('Triggers installed: comments every 15 min' +
+  Logger.log('Triggers installed: every 15 min' +
     (CONFIG.DAILY_SUMMARY ? ', daily summary at 20:00.' : '.'));
 }
 
-/**
- * Safe end-to-end test with a fake comment — touches no real Instagram post.
- * Generates a reply, logs it, and emails you the approval links.
- */
+/** Shows which channels are switched on and which secrets are present. */
+function statusCheck() {
+  Logger.log('--- secrets ---');
+  Logger.log('Anthropic: ' + hasSecret_(PROP.ANTHROPIC_KEY));
+  Logger.log('Meta:      ' + hasSecret_(PROP.META_TOKEN));
+  Logger.log('YouTube:   ' + hasSecret_(PROP.YOUTUBE_TOKEN));
+  Logger.log('TikTok:    ' + hasSecret_(PROP.TIKTOK_TOKEN));
+  Logger.log('--- platforms ---');
+  Object.keys(PLATFORMS).forEach(k => {
+    const c = PLATFORMS[k];
+    Logger.log(k + ': ' + (c.enabled ? 'ON' : 'off') +
+      ' (comments:' + !!c.comments + ' dm:' + !!c.dm + ')');
+  });
+  Logger.log('--- safety ---');
+  Logger.log('DRAFT_ONLY_MODE:     ' + CONFIG.DRAFT_ONLY_MODE);
+  Logger.log('ALWAYS_ASK_APPROVAL: ' + CONFIG.ALWAYS_ASK_APPROVAL);
+  Logger.log('Sheet set: ' + !!CONFIG.SPREADSHEET_ID);
+}
+
+/** Safe end-to-end test with a fake comment — touches no real account. */
 function testWithFakeComment() {
-  processComment_({
+  processMessage_({
     id: 'TEST_' + Date.now(),
     text: 'بشحال هاد الموستكير؟ وواش كتوصلو لأكادير؟',
-    author: 'زبون_تجريبي',
-    platform: 'instagram',
-    postId: 'TEST',
+    author: 'زبون_تجريبي', platform: 'instagram', postId: 'TEST', kind: 'comment',
   });
   Logger.log('Done — check your email and the spreadsheet.');
 }
 
-/** Try several comment types at once to see how the AI handles each. */
-function testManyComments() {
-  ['بشحال؟', 'بغيت نطلب وحدة', 'واش كاين ضمان؟', 'غالي بزاف', 'تبارك الله عليكم']
-    .forEach((t, i) => {
-      processComment_({
-        id: 'TEST_' + Date.now() + '_' + i,
-        text: t, author: 'تجربة_' + i, platform: 'instagram', postId: 'TEST',
-      });
-      Utilities.sleep(1000);
+/** Tries several message types, including a DM and Arabizi, all fake. */
+function testManyMessages() {
+  const cases = [
+    { text: 'بشحال؟', kind: 'comment', platform: 'instagram' },
+    { text: 'chhal hadi? o wach katwaslo l casa?', kind: 'comment', platform: 'instagram' },
+    { text: 'بغيت نطلب وحدة دابا', kind: 'dm', platform: 'instagram' },
+    { text: 'واش كاين ضمان؟', kind: 'comment', platform: 'facebook' },
+    { text: 'واش كتديرو الكوليسان؟', kind: 'comment', platform: 'youtube' },
+    { text: 'شنو الألوان لي كاينين؟', kind: 'comment', platform: 'tiktok' },
+  ];
+  cases.forEach((c, i) => {
+    processMessage_({
+      id: 'TEST_' + Date.now() + '_' + i,
+      text: c.text, author: 'تجربة_' + i,
+      platform: c.platform, postId: 'TEST', threadId: 'TEST', kind: c.kind,
     });
-  Logger.log('Done — check the spreadsheet for all 5.');
+    Utilities.sleep(1200);
+  });
+  Logger.log('Done — check the spreadsheet for all ' + cases.length + '.');
 }

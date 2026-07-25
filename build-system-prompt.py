@@ -24,6 +24,16 @@ ROOT = pathlib.Path(__file__).parent
 OUTPUT_CONTRACT = """
 ---
 
+# BEFORE YOU WRITE — two checks, every single time
+
+**1. What letters did they use?** Look at the customer's message.
+   Latin letters (`chhal`, `bghit`, `wach`, `salam`, `bonjour`) → your reply is in Latin
+   letters. Arabic letters → your reply is in Arabic letters. Never answer Latin-script
+   Darija in Arabic script; it is the most obvious bot tell there is.
+
+**2. Is the WhatsApp number in your reply?** If it isn't, and this wasn't a pure compliment,
+   the reply has failed its job. Add it.
+
 # HOW TO ANSWER (output format)
 
 Respond with a raw JSON object and NOTHING else. No ```json fences, no explanation before or
