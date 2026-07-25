@@ -370,8 +370,9 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "const raw = $json.content[0].text;\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  // Model didn't return clean JSON -- fail safe to human review rather than guess.\n  parsed = { reply: '', needs_human: true, client_type: 'غير محدد', parse_error: raw };\n}\nreturn { json: { ...$json, reply: parsed.reply, needs_human: parsed.needs_human === true,\n  client_type: parsed.client_type || 'غير محدد' } };"
-      }
+        "jsCode": "// The model often wraps its JSON in ```json fences and/or appends an explanation\n// after it (verified against real API output), so a bare JSON.parse() fails.\n// Strip fences, then take the first balanced {...} block.\nlet raw = ($json.content && $json.content[0] && $json.content[0].text) || '';\nraw = raw.replace(/```(?:json)?/gi, '').trim();\nlet parsed = null;\nconst start = raw.indexOf('{');\nif (start !== -1) {\n  let depth = 0, inStr = false, esc = false;\n  for (let i = start; i < raw.length; i++) {\n    const ch = raw[i];\n    if (esc) { esc = false; continue; }\n    if (ch === '\\\\') { esc = true; continue; }\n    if (ch === '\"') { inStr = !inStr; continue; }\n    if (inStr) continue;\n    if (ch === '{') depth++;\n    else if (ch === '}') {\n      depth--;\n      if (depth === 0) {\n        try { parsed = JSON.parse(raw.slice(start, i + 1)); } catch (e) { parsed = null; }\n        break;\n      }\n    }\n  }\n}\n// If we still couldn't parse, fail SAFE: send it to a human rather than guess.\nif (!parsed || typeof parsed.reply !== 'string' || !parsed.reply.trim()) {\n  return { json: { ...$json, reply: (parsed && parsed.reply) || '',\n    needs_human: true, client_type: (parsed && parsed.client_type) || 'غير محدد',\n    parse_error: raw.slice(0, 500) } };\n}\nreturn { json: { ...$json, reply: parsed.reply,\n  needs_human: parsed.needs_human === true,\n  client_type: parsed.client_type || 'غير محدد' } };"
+      },
+      "notes": "Tolerant parser: the model wraps JSON in ```json fences and appends prose (confirmed against live API output on 2026-07-24), so this strips fences and extracts the first balanced JSON object. Unparseable output fails safe to needs_human=true rather than posting a guess."
     },
     {
       "id": "needshuman",
