@@ -89,18 +89,55 @@ Choose **`installTrigger`** → **Run**. The system now checks for new comments 
 
 ---
 
-## The two safety switches (in `Config.gs`)
+## What the system actually does
+
+**Every reply is built to move the person to WhatsApp** — that's where you sell. It answers
+enough to be useful (the per-metre rate, yes we deliver, 60 درهم), then bridges with the real
+reason it can't finish the job publicly: it needs their measurements. That bridge is honest,
+which is why it doesn't read like a dodge.
+
+It also **scores every lead** — ساخن (ready to buy), دافئ (real interest), بارد (just looking) —
+in the spreadsheet and in the email subject, so you know who to chase first.
+
+**Anti-slop:** the prompt bans the phrases that make Arabic text obviously machine-written
+(`شكرا لتواصلك معنا`, `لا تتردد في التواصل`, `يسعدنا`, tashkeel, emoji spam, multi-paragraph
+replies). Verified on live output: 0 slop phrases across a 13-comment test.
+
+**The invention guard:** the AI knows your three prices, delivery, and the workshop address —
+nothing else. During testing it was caught confidently inventing product specs ("the double
+has two layers, protects from sun", "yes we make sliding ones"), which would land on your
+workshop after the customer paid. So two things stop it now: the prompt forbids it, and
+`UNVERIFIED_TOPICS` in `Config.gs` holds any comment mentioning guarantees, colours, materials,
+sliding models, frames, or durability for your approval no matter what.
+
+> **When you send me the real answers** to those (guarantee policy, colours, materials,
+> delivery time, payment methods), they move into the facts file and come out of the guard
+> list — then the AI answers them instantly on its own and more leads convert without you.
+
+## The safety switches (in `Config.gs`)
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `DRAFT_ONLY_MODE` | `true` | **Nothing is ever posted publicly.** Replies are drafted, logged, emailed. Leave on until you trust it. |
 | `ALWAYS_ASK_APPROVAL` | `true` | Every reply waits for your approval, even harmless ones. Set `false` once ~9 out of 10 drafts are good as-is. |
+| `SEND_PRIVATE_REPLY` | `false` | Sends a DM with a **tappable WhatsApp link** to warm/hot leads. Highest-converting feature here — but needs the `pages_messaging` permission, so turn it on after public replies work. |
+| `DAILY_SUMMARY` | `true` | 20:00 email: how many comments, and which hot leads to chase. |
 
-Going live is deliberately two steps: first set `ALWAYS_ASK_APPROVAL = false` (auto-replies to
-easy questions, complaints still come to you), then later `DRAFT_ONLY_MODE = false`.
+Going live is deliberately staged: first `ALWAYS_ASK_APPROVAL = false` (auto-replies to easy
+questions, complaints still come to you), then later `DRAFT_ONLY_MODE = false`.
 
-Complaints, refund/return questions, payment-method questions, guarantee questions, and
-international-shipping questions **always** come to you, regardless of these switches.
+Complaints, refund/return questions, and anything in `UNVERIFIED_TOPICS` **always** come to you,
+regardless of these switches.
+
+## Why the DM matters (`SEND_PRIVATE_REPLY`)
+
+A phone number in an Instagram comment isn't clickable — the customer has to copy it, open
+WhatsApp, save a contact, and type. Most won't. Instagram lets a business send **one** private
+message in reply to a comment, and a DM link *is* tappable: it opens WhatsApp with
+"السلام عليكم، جاي من الانستغرام، بغيت نسول على الموستيكير" already written. They just hit send.
+
+That's the single biggest conversion lever in this system. It only fires for ساخن/دافئ leads,
+so it never looks like spam.
 
 ## Free quota limits (consumer Gmail account)
 
