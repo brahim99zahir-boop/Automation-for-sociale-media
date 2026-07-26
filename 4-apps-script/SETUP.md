@@ -15,13 +15,16 @@ No VPS, no domain, no Docker, no n8n subscription, no credit card.
 
 ## Step 2 — Add the code (5 min)
 
-The project starts with one file called `Code.gs`. You need three files total.
+The project starts with one file called `Code.gs`. You need six files total.
 
 1. **`Code.gs`** — select everything already in it and delete it, then paste the full
    contents of [`Code.gs`](./Code.gs) from this repo.
 2. **`Config.gs`** — click the **+** next to "Files" → **Script** → name it `Config`
    → paste [`Config.gs`](./Config.gs).
-3. **`SystemPrompt.gs`** — same again → name it `SystemPrompt`
+3. **`Settings.gs`** — same again → paste [`Settings.gs`](./Settings.gs).
+4. **`Platforms.gs`** — same again → paste [`Platforms.gs`](./Platforms.gs).
+5. **`Dashboard.gs`** — same again → paste [`Dashboard.gs`](./Dashboard.gs).
+6. **`SystemPrompt.gs`** — same again → name it `SystemPrompt`
    → paste [`SystemPrompt.gs`](./SystemPrompt.gs).
 
 Click the **save** icon (💾).
@@ -73,6 +76,28 @@ by default**, so even clicking Approve posts nothing yet.
 
 Re-run `testWithFakeComment` and the buttons in the email will now work.
 
+## Step 6b — Open your dashboard (1 min)
+
+Choose **`setupDashboard`** → **Run** → open the **Execution log**. It prints a URL ending
+in `?dash=` followed by a long random string. That is your private control panel:
+
+- a big **stop / start** button for the whole automation
+- today's messages, hot leads, and how many are waiting for you
+- what Claude has actually cost — today, 7 days, 30 days, in dirhams
+- switches for test mode, "ask me first", the daily summary, and each platform
+- the last 60 messages with the reply that was sent
+
+**Bookmark that URL and keep it private.** Because the web app has to be open to
+"Anyone" (Step 6), the script has no way to tell who is visiting — Google doesn't pass it
+an identity. So the long token in the URL *is* the password. Anyone you send it to can see
+your customers and switch your automation off.
+
+If it ever leaks, run **`resetDashboardToken`** — the old link dies immediately and you
+get a new one.
+
+Visiting the plain web app URL without the token shows only "الخدمة خدامة ✅" and no data,
+which is what Meta and anyone else who finds the URL will see.
+
 ## Step 7 — Connect Instagram (the last piece)
 
 This needs a Meta developer app — tell me when you're at this step and I'll walk you through
@@ -114,17 +139,37 @@ sliding models, frames, or durability for your approval no matter what.
 > delivery time, payment methods), they move into the facts file and come out of the guard
 > list — then the AI answers them instantly on its own and more leads convert without you.
 
-## The safety switches (in `Config.gs`)
+## The safety switches (change these from the dashboard)
 
 | Setting | Default | Meaning |
 |---|---|---|
+| **stop / start** | running | Master switch. Stops the 15-minute timer *and* live webhooks. Nothing is read, nothing is answered, nothing is charged. |
 | `DRAFT_ONLY_MODE` | `true` | **Nothing is ever posted publicly.** Replies are drafted, logged, emailed. Leave on until you trust it. |
-| `ALWAYS_ASK_APPROVAL` | `true` | Every reply waits for your approval, even harmless ones. Set `false` once ~9 out of 10 drafts are good as-is. |
-| `SEND_PRIVATE_REPLY` | `false` | Sends a DM with a **tappable WhatsApp link** to warm/hot leads. Highest-converting feature here — but needs the `pages_messaging` permission, so turn it on after public replies work. |
-| `DAILY_SUMMARY` | `true` | 20:00 email: how many comments, and which hot leads to chase. |
+| `ALWAYS_ASK_APPROVAL` | `true` | Every reply waits for your approval, even harmless ones. Set off once ~9 out of 10 drafts are good as-is. |
+| `DAILY_SUMMARY` | `true` | 20:00 email: how many comments, which hot leads to chase, and what the day cost. |
+| per-platform | all off | Instagram / Facebook / YouTube / TikTok, each on its own. |
 
-Going live is deliberately staged: first `ALWAYS_ASK_APPROVAL = false` (auto-replies to easy
-questions, complaints still come to you), then later `DRAFT_ONLY_MODE = false`.
+Going live is deliberately staged: first turn off `ALWAYS_ASK_APPROVAL` (auto-replies to easy
+questions, complaints still come to you), then later turn off `DRAFT_ONLY_MODE`.
+
+> **Why the dashboard and not `Config.gs`?** Apps Script re-reads every file from source on
+> every run, so a value written into `CONFIG` at runtime disappears at the end of that run —
+> a stop button editing `CONFIG` would un-stop itself within 15 minutes. The live values are
+> kept in Script Properties instead (`Settings.gs`), which persist. `Config.gs` still holds
+> the **defaults** used before you ever touch a switch.
+
+## What it costs, and what the dashboard can't tell you
+
+Every Claude call is metered where the request is made, so the dirham figures on the
+dashboard are actual spend, not an estimate. At Haiku 4.5 pricing ($1 per million input
+tokens, $5 per million output) a typical comment costs a small fraction of a centime — the
+30-day total is the number to watch.
+
+**The dashboard cannot show your remaining Claude balance.** Anthropic's API has no endpoint
+that reports account credit; the only spend data it returns is the token count for the
+request you just made. So the dashboard shows what you have *spent* and links to
+[console.anthropic.com](https://console.anthropic.com/settings/billing) for what's *left*.
+Anything claiming to show your balance inside the script would be made up.
 
 Complaints, refund/return questions, and anything in `UNVERIFIED_TOPICS` **always** come to you,
 regardless of these switches.

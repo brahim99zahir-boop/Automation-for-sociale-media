@@ -117,6 +117,14 @@ const PROP = {
   TIKTOK_TOKEN: 'TIKTOK_ACCESS_TOKEN',
   SEEN_IDS: 'SEEN_COMMENT_IDS',
   PENDING_PREFIX: 'pending_',
+
+  // Runtime settings the dashboard can change (see Settings.gs for why these can't
+  // just live in CONFIG).
+  SETTINGS: 'RUNTIME_SETTINGS',
+  // One key per day: usage_2026-07-26 -> {calls,input,output}
+  USAGE_PREFIX: 'usage_',
+  // Secret that gates the dashboard, because the web app itself must stay public.
+  DASHBOARD_TOKEN: 'DASHBOARD_TOKEN',
 };
 
 /**

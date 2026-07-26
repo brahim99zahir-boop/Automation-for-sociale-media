@@ -21,7 +21,9 @@
  *   doPost()       live Instagram/Facebook webhooks (optional; polling alone works)
  *   dailySummary() evening digest of the day's leads
  *
- * Safety: while CONFIG.DRAFT_ONLY_MODE is true, nothing is ever posted or sent.
+ * Safety: while DRAFT_ONLY_MODE is on, nothing is ever posted or sent. It and the
+ * master stop switch live in Script Properties (Settings.gs) so the dashboard can
+ * change them at runtime; CONFIG only supplies the defaults.
  */
 
 // ---------------------------------------------------------------------------
@@ -35,11 +37,16 @@ function checkEverything() {
     return;
   }
   try {
+    // Master kill switch, flipped from the dashboard. Checked here rather than by
+    // deleting the trigger, so switching back on is one click and needs no re-auth.
+    if (!getSetting_('AUTOMATION_ENABLED')) {
+      Logger.log('Automation is stopped from the dashboard; doing nothing.');
+      return;
+    }
     let total = 0;
     for (const name of Object.keys(PLATFORMS)) {
-      const cfg = PLATFORMS[name];
-      if (!cfg.enabled) continue;
-      total += runPlatform_(name, cfg);
+      if (!platformEnabled_(name)) continue;
+      total += runPlatform_(name, PLATFORMS[name]);
     }
     Logger.log('Handled ' + total + ' new message(s) across all platforms.');
   } catch (err) {
@@ -102,15 +109,26 @@ function processMessage_(msg) {
   const risky = mentionsUnverifiedTopic_(msg.text);
   if (risky) ai.guard = risky;
 
-  const needsHuman = ai.needs_human || !!risky || CONFIG.ALWAYS_ASK_APPROVAL;
+  const draftOnly = getSetting_('DRAFT_ONLY_MODE');
+  const needsHuman = ai.needs_human || !!risky || getSetting_('ALWAYS_ASK_APPROVAL');
 
-  if (!needsHuman && !CONFIG.DRAFT_ONLY_MODE) {
+  if (!needsHuman && !draftOnly) {
     deliver_(msg, ai);
     logToSheet_(msg, ai, msg.kind === 'dm' ? 'تجاوب ف الرسائل' : 'تم الرد تلقائيًا');
     return;
   }
 
   // Otherwise hold it and email the owner to decide.
+  //
+  // Log FIRST so we know which row this message owns. The old code looked the row up
+  // again at approval time by scanning back for the newest still-pending row, which
+  // silently updated the wrong row whenever two messages were awaiting a decision at
+  // once — approving the older one would stamp the newer one's status. The row number
+  // is now carried in the token payload, so a click always lands on its own row.
+  const row = logToSheet_(msg, ai, draftOnly
+    ? 'مسودة — بانتظار موافقتك (وضع الاختبار)'
+    : 'بانتظار موافقتك');
+
   const token = Utilities.getUuid();
   PropertiesService.getScriptProperties().setProperty(
     PROP.PENDING_PREFIX + token,
@@ -119,14 +137,12 @@ function processMessage_(msg) {
       reply: ai.reply,
       client_type: ai.client_type,
       lead: ai.lead,
+      row: row,
       created: new Date().toISOString(),
     })
   );
 
   sendApprovalEmail_(msg, ai, token);
-  logToSheet_(msg, ai, CONFIG.DRAFT_ONLY_MODE
-    ? 'مسودة — بانتظار موافقتك (وضع الاختبار)'
-    : 'بانتظار موافقتك');
 }
 
 /**
@@ -135,7 +151,7 @@ function processMessage_(msg) {
  * tappable wa.me link — a phone number in a comment isn't clickable, a DM link is.
  */
 function deliver_(msg, ai) {
-  if (CONFIG.DRAFT_ONLY_MODE) {
+  if (getSetting_('DRAFT_ONLY_MODE')) {
     Logger.log('DRAFT_ONLY_MODE on — not sending. Would have replied: ' + ai.reply);
     return;
   }
@@ -154,7 +170,7 @@ function deliver_(msg, ai) {
 /** Instagram allows one private message in response to a comment. Only for real leads. */
 function maybePrivateReply_(msg, ai) {
   if (msg.platform !== 'instagram') return;              // only Instagram supports this
-  if (!PLATFORMS.instagram.dm) return;
+  if (!PLATFORMS.instagram.dm || !platformEnabled_('instagram')) return;
   if (ai.lead !== 'ساخن' && ai.lead !== 'دافئ') return;  // never spam cold commenters
 
   try {
@@ -309,7 +325,15 @@ function callClaudeWithRetry_(userContent) {
     });
 
     const code = res.getResponseCode();
-    if (code === 200) return JSON.parse(res.getContentText()).content[0].text;
+    if (code === 200) {
+      const body = JSON.parse(res.getContentText());
+      // Every call is metered here — this is the only place a request reaches Anthropic,
+      // so counting here cannot miss one. Note generateReply_ can call twice for a single
+      // customer message when the script-purity retry fires; both are billed, and both
+      // are counted.
+      recordUsage_(body.usage);
+      return body.content[0].text;
+    }
 
     if ((code !== 429 && code < 500) || attempt === 2) {
       throw new Error('Anthropic API ' + code + ': ' + res.getContentText().slice(0, 400));
@@ -382,6 +406,11 @@ function doGet(e) {
 
   if (p.action && p.token) return handleApproval_(p.action, p.token);
 
+  // Private control panel. Wrong or missing token falls through to the public page
+  // below rather than saying "wrong token" — no point confirming the URL exists.
+  if (p.dash && dashboardTokenValid_(p.dash)) return renderDashboard_();
+
+  // Public default. Deliberately empty of information: this URL is reachable by anyone.
   return html_('نظام الرد الآلي', 'الخدمة خدامة ✅');
 }
 
@@ -397,19 +426,19 @@ function handleApproval_(action, token) {
   props.deleteProperty(key);   // single-use: a re-click can't send twice
 
   if (action !== 'approve') {
-    updateSheetStatus_('مرفوض — ما تنشرش');
+    updateSheetStatus_(pending.row, 'مرفوض — ما تنشرش');
     return html_('تم الرفض', 'ما تصيفط والو.');
   }
 
-  if (CONFIG.DRAFT_ONLY_MODE) {
-    updateSheetStatus_('موافق عليه — ولكن ما تصيفطش (وضع الاختبار)');
+  if (getSetting_('DRAFT_ONLY_MODE')) {
+    updateSheetStatus_(pending.row, 'موافق عليه — ولكن ما تصيفطش (وضع الاختبار)');
     return html_('تمت الموافقة',
-      'وضع الاختبار مفعل، لذلك ما تصيفط والو. طفي DRAFT_ONLY_MODE باش يخدم بصح.');
+      'وضع الاختبار مفعل، لذلك ما تصيفط والو. طفيه من اللوحة باش يخدم بصح.');
   }
 
   try {
     deliver_(pending.msg, { reply: pending.reply, lead: pending.lead });
-    updateSheetStatus_('تمت الموافقة وتصيفط');
+    updateSheetStatus_(pending.row, 'تمت الموافقة وتصيفط');
     return html_('تصيفط ✅', escapeHtml_(pending.reply));
   } catch (err) {
     notifyError_('handleApproval/send', err, JSON.stringify(pending.msg));
@@ -421,6 +450,20 @@ function handleApproval_(action, token) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+
+    // Dashboard actions arrive on the same endpoint (Apps Script gives you exactly one
+    // doPost). They carry a `dash` token and an `action`; Meta payloads never do, so the
+    // two can't be confused. handleDashboardAction_ re-verifies the token itself.
+    if (body.dash && body.action) {
+      return ContentService
+        .createTextOutput(JSON.stringify(handleDashboardAction_(body)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // The stop button has to stop webhooks too, not just the timer — otherwise
+    // "stopped" would still reply instantly to anything Meta pushes.
+    if (!getSetting_('AUTOMATION_ENABLED')) return ContentService.createTextOutput('PAUSED');
+
     const platform = body.object === 'instagram' ? 'instagram' : 'facebook';
 
     for (const entry of (body.entry || [])) {
@@ -480,7 +523,7 @@ function sendApprovalEmail_(msg, ai, token) {
       'ما عندناش معلومة مؤكدة على هادشي، لذلك حبسناه ليك. قرا الرد مزيان قبل ما توافق.</p>'
     : '';
 
-  const draftNote = CONFIG.DRAFT_ONLY_MODE
+  const draftNote = getSetting_('DRAFT_ONLY_MODE')
     ? '<p style="color:#b45309"><b>وضع الاختبار مفعل</b> — حتى إلا وافقتي، ما غادي يتصيفط والو.</p>'
     : '';
 
@@ -528,7 +571,12 @@ function notifyError_(where, err, context) {
 
 /** Evening digest: what came in today, and which leads to chase on WhatsApp. */
 function dailySummary() {
-  if (!CONFIG.DAILY_SUMMARY) return;
+  // Housekeeping runs even when the summary email is switched off, otherwise stale
+  // usage keys and never-clicked approvals fill Script Properties until writes fail.
+  pruneOldUsage_();
+  pruneOldPending_();
+
+  if (!getSetting_('DAILY_SUMMARY')) return;
   try {
     const sh = getSheet_();
     const today = Utilities.formatDate(new Date(), 'Africa/Casablanca', 'yyyy-MM-dd');
@@ -551,6 +599,19 @@ function dailySummary() {
           escapeHtml_(r[4]) + '</li>';
       });
       html += '</ul>';
+    }
+    // What today actually cost, so the number is never a surprise at the end of a month.
+    const cost = costOf_(usageForDay_(today));
+    const month = usageWindow_(30).cost;
+    html += '<p style="color:#6b7280;font-size:13px">التكلفة اليوم: <b>' +
+      cost.mad.toFixed(2) + ' درهم</b> • آخر 30 يوم: <b>' + month.mad.toFixed(2) +
+      ' درهم</b></p>';
+
+    const dashUrl = PropertiesService.getScriptProperties()
+      .getProperty(PROP.DASHBOARD_TOKEN);
+    if (dashUrl) {
+      html += '<p><a href="' + ScriptApp.getService().getUrl() + '?dash=' + dashUrl +
+        '">افتح لوحة التحكم ←</a></p>';
     }
     html += '<p><a href="' + SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID).getUrl() +
       '">شوف الجدول كامل ←</a></p></div>';
@@ -607,9 +668,11 @@ function getSheet_() {
   return sh;
 }
 
+/** Appends one row and returns its row number (0 if logging failed). */
 function logToSheet_(msg, ai, status) {
   try {
-    getSheet_().appendRow([
+    const sh = getSheet_();
+    sh.appendRow([
       Utilities.formatDate(new Date(), 'Africa/Casablanca', 'yyyy-MM-dd HH:mm'),
       PLATFORM_LABEL[msg.platform] || msg.platform,
       msg.kind === 'dm' ? 'رسالة خاصة' : 'تعليق',
@@ -620,23 +683,22 @@ function logToSheet_(msg, ai, status) {
       ai.reply,
       status,
     ]);
+    return sh.getLastRow();
   } catch (err) {
     Logger.log('logToSheet failed: ' + err);   // logging must never break a reply
+    return 0;
   }
 }
 
-/** Update the الحالة cell of the newest still-pending row. */
-function updateSheetStatus_(status) {
+/**
+ * Set the الحالة cell of one specific row. The row comes from the pending payload, so
+ * an approval always updates the message it belongs to — see the note in
+ * processMessage_ about why scanning for "the newest pending row" was wrong.
+ */
+function updateSheetStatus_(row, status) {
+  if (!row) return;   // logging failed earlier; nothing to update
   try {
-    const sh = getSheet_();
-    const last = sh.getLastRow();
-    for (let r = last; r > 1 && r > last - 50; r--) {
-      const cur = String(sh.getRange(r, 9).getValue());
-      if (cur.indexOf('بانتظار') === 0 || cur.indexOf('مسودة') === 0) {
-        sh.getRange(r, 9).setValue(status);
-        return;
-      }
-    }
+    getSheet_().getRange(row, 9).setValue(status);
   } catch (err) {
     Logger.log('updateSheetStatus failed: ' + err);
   }
@@ -701,12 +763,13 @@ function statusCheck() {
   Logger.log('--- platforms ---');
   Object.keys(PLATFORMS).forEach(k => {
     const c = PLATFORMS[k];
-    Logger.log(k + ': ' + (c.enabled ? 'ON' : 'off') +
+    Logger.log(k + ': ' + (platformEnabled_(k) ? 'ON' : 'off') +
       ' (comments:' + !!c.comments + ' dm:' + !!c.dm + ')');
   });
   Logger.log('--- safety ---');
-  Logger.log('DRAFT_ONLY_MODE:     ' + CONFIG.DRAFT_ONLY_MODE);
-  Logger.log('ALWAYS_ASK_APPROVAL: ' + CONFIG.ALWAYS_ASK_APPROVAL);
+  Logger.log('AUTOMATION_ENABLED:  ' + getSetting_('AUTOMATION_ENABLED'));
+  Logger.log('DRAFT_ONLY_MODE:     ' + getSetting_('DRAFT_ONLY_MODE'));
+  Logger.log('ALWAYS_ASK_APPROVAL: ' + getSetting_('ALWAYS_ASK_APPROVAL'));
   Logger.log('Sheet set: ' + !!CONFIG.SPREADSHEET_ID);
 }
 
