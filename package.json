@@ -1,5 +1,7 @@
 {
   "dependencies": {
-    "animejs": "^4.5.0"
+    "animejs": "^4.5.0",
+    "motion": "^12.42.2",
+    "motion-v": "^2.3.0"
   }
 }
