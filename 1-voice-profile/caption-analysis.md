@@ -90,14 +90,66 @@ The low performers are mostly sale announcements (صولد قريبا). **Posts 
 beat posts that announce.** Both winners have full hashtag sets; several weak ones have none
 or one.
 
+## What the videos themselves show
+
+Instagram's rate limit cleared, so I downloaded 6 reels and read frames from each. Sample
+frames are in `frames-sample/`. This is what's on screen, not a transcription — the text
+overlays and the product are directly visible.
+
+### New facts, none of which the AI currently knows
+
+**A second phone number: `0674191830`.** It appears on screen next to 0666567672 in the
+workshop video. The AI only knows the first one. Should it give both, or only 0666567672?
+
+**Your slogan: `جري على الحشرات`.** It's burned into several videos. Nothing in the system
+prompt uses it. That's a missed brand asset.
+
+**Your own Latin spelling: `Mosteqeir`.** Written on screen by you. The facts file guesses
+`moustiquaire` for Arabizi replies — yours should win.
+
+### The prices on screen
+
+| Post | On screen | Reading |
+|---|---|---|
+| DYe7iJcMADY (6775 likes) | `الثمن 550dh` — on a **door** | flat price for a door screen |
+| DXJ_RJcDJVA | `مابقاتش 550.00` → `صولد غير 439.00` | sale, 550 down to **439** |
+| DbCoAMRmvDY | `متر كاري 750.00` | **explicitly per m²** |
+| DbEX6eUjBjm (caption) | `مبقاش 550dh صولد غير 470.00dh` | sale, 550 down to **470** |
+
+**This is the important one.** The facts file tells the AI everything is per square metre —
+470 / 720 / 630. Your videos show something different:
+
+- a **door at a flat 550dh**, not per m²
+- `متر كاري 750.00` as a per-m² rate, where the facts file says 720 for المزدوج
+- **439** as a sale price, a number that appears nowhere in the facts file
+- 550 as the "before" price in two separate sales
+
+So the AI may currently be quoting per-m² rates for things you sell at a flat price, and
+quoting sale prices as if they were standard. Both mistakes land on you when the customer
+arrives expecting that number.
+
+### What the product actually looks like
+
+Now confirmed visually rather than assumed:
+
+- **Aluminium frames** in white and dark grey/anthracite, with visible corner joints
+- **Sliding panels** that run in a track — the كوليسان, shown working
+- Fine dark mesh; one panel in the workshop shot is much darker, consistent with المضلم
+- Fitted to both **windows and full doorways**
+- The workshop is real and well equipped: mesh rolls on wall racks, aluminium profile
+  stock, cutting bench, hand tools
+- You appear on camera in most videos yourself, in daylight, on location
+
+That last point matters for the website — you have a face and a real workshop, which is
+exactly what a customer wants to see before paying in advance.
+
 ## What I could not get
 
-- **The audio.** Whisper hallucinated badly on these clips before — silent product b-roll
-  with music over it, plus Darija being poorly represented in the model. It produced
+- **The audio.** Whisper hallucinated badly on these clips — silent product b-roll with
+  music over it, plus Darija being poorly represented in the model. It produced
   "اشتركوا في القناة" for a clip that never said it. Not usable, and I won't fabricate a
-  voice profile from it.
-- **The video frames.** Instagram rate-limited (HTTP 429) mid-run. Retryable later; frames
-  would give real product photos for the website.
+  voice profile from it. The on-screen text turned out to be a better source anyway,
+  because you typed it.
 - **The other 2 reels**, and everything on **TikTok and Facebook** — I need those URLs; I
   only ever had the 11 Instagram links.
 - **A full account listing.** Instagram blocks that without a login (429). Individual post
