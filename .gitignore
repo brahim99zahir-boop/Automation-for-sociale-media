@@ -12,6 +12,11 @@ config.local.md
 1-voice-profile/*.wav
 1-voice-profile/whisper-models/
 
+# Third-party agent skills installed via `npx skills add` — tooling, not project code
+.agents/
+.claude/skills/
+skills-lock.json
+
 # OS/editor cruft
 .DS_Store
 *.swp
