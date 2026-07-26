@@ -17,6 +17,9 @@ config.local.md
 .claude/skills/
 skills-lock.json
 
+# npm packages — restorable from package-lock.json with `npm ci`
+node_modules/
+
 # OS/editor cruft
 .DS_Store
 *.swp
