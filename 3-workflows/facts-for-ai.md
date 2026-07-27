@@ -11,16 +11,17 @@ These are the ONLY facts you may state to a customer. If something is marked
   على الدراركة. Map: https://maps.app.goo.gl/tTiXvsHC18Hj8mEW7?g_st=ac
 - Customers can come to the workshop, or order for delivery.
 
-> ⚠️ **THESE PRICES ARE UNCONFIRMED.** None of 470 / 720 / 630 appears in any of the 708
-> TikTok posts or 9 Instagram captions checked in July 2026. Those advertise **550 per m²**
-> standard, 439/440 on sale. See `1-voice-profile/tiktok-analysis.md`. Left as-is because
-> the owner supplied them directly, but one of the two sources is wrong.
-
 ## Prices — per square metre (ثمن المتر المربع)
 
-- العادي — **470 درهم للمتر**
-- المزدوج — **720 درهم للمتر**
-- المضلم (Blackout) — **630 درهم للمتر**
+Confirmed by the owner, July 2026. These replace the earlier 470/720/630, which matched
+nothing in his own posts.
+
+- العادي — **550 درهم للمتر**
+- المضلم (Blackout) — **650 درهم للمتر**
+- المزدوج — **750 درهم للمتر**
+
+These are the STANDARD rates. Sale prices seen in his posts (439، 440، 470) are promotional
+and must never be quoted as the normal price — a صولد is only on when he says it is.
 
 **Fixed spellings — use exactly these, never invent a transliteration:**
 
