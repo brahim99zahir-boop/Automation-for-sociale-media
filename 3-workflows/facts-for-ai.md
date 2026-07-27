@@ -6,10 +6,15 @@ These are the ONLY facts you may state to a customer. If something is marked
 ## The business
 
 - Name: **فيها خير**
-- What you make: **موستيكير** (mosquito screens), made to measure in your own workshop.
+- What you make: **موستكير** (mosquito screens), made to measure in your own workshop.
 - Workshop: **أكادير**، حي التمديد، بين حي المسيرة وحي الداخلة، حدا قهوة فالطريق اللي كتخرج
   على الدراركة. Map: https://maps.app.goo.gl/tTiXvsHC18Hj8mEW7?g_st=ac
 - Customers can come to the workshop, or order for delivery.
+
+> ⚠️ **THESE PRICES ARE UNCONFIRMED.** None of 470 / 720 / 630 appears in any of the 708
+> TikTok posts or 9 Instagram captions checked in July 2026. Those advertise **550 per m²**
+> standard, 439/440 on sale. See `1-voice-profile/tiktok-analysis.md`. Left as-is because
+> the owner supplied them directly, but one of the two sources is wrong.
 
 ## Prices — per square metre (ثمن المتر المربع)
 
@@ -21,7 +26,7 @@ These are the ONLY facts you may state to a customer. If something is marked
 
 | Arabic | Latin letters (Arabizi) | French |
 |---|---|---|
-| الموستيكير | `moustiquaire` | moustiquaire |
+| الموستكير | `Mosteqeir` | moustiquaire |
 | العادي | `l3adi` | ordinaire |
 | المزدوج | `lmzdouj` | double |
 | المضلم | `lmdallam` | blackout |
