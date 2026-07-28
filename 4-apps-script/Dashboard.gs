@@ -102,6 +102,27 @@ function handleDashboardAction_(body) {
       return { ok: true, key: key, value: next };
     }
 
+    // Manual mode: no platform API involved. You paste a customer's comment, this
+    // returns the reply, you paste it back yourself. Works with zero Meta access and
+    // carries no ban risk, because nothing here touches Instagram at all.
+    case 'draft': {
+      const text = String(body.text || '').trim();
+      if (!text) return { ok: false, error: 'empty' };
+      const msg = {
+        id: 'manual_' + Date.now(), text: text, author: String(body.author || 'زبون'),
+        platform: String(body.platform || 'instagram'),
+        kind: body.kind === 'dm' ? 'dm' : 'comment',
+      };
+      const ai = generateReply_(msg);
+      const risky = mentionsUnverifiedTopic_(text);
+      // Same guard as the automatic path: flag anything the AI has no confirmed facts for.
+      return {
+        ok: true, reply: ai.reply || '', lead: ai.lead, client_type: ai.client_type,
+        warn: risky || (ai.needs_human ? 'راجعه مزيان قبل ما تصيفطو' : ''),
+        whatsapp: whatsappLink_(msg.author),
+      };
+    }
+
     case 'platform': {
       const name = String(body.key || '');
       if (!(name in PLATFORMS)) return { ok: false, error: 'unknown platform' };
@@ -212,6 +233,12 @@ function dashboardHtml_(d) {
 ' .lead{padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700;white-space:nowrap}' +
 ' .lead-hot{background:#fee2e2;color:#991b1b} .lead-warm{background:#ffedd5;color:#9a3412}' +
 ' .lead-cold{background:#f1f5f9;color:#475569}' +
+' textarea,select{width:100%;font-family:inherit;font-size:15px;padding:11px;border-radius:10px;' +
+'   border:1px solid #d1d5db;background:#fff;color:inherit;direction:rtl;resize:vertical}' +
+' .qrow{display:flex;gap:10px;align-items:center;margin-top:10px}' +
+' .qrow select{width:auto;flex:0 0 auto}' +
+' .replybox{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:14px;' +
+'   font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word}' +
 ' .note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;' +
 '   font-size:13px;color:#78350f;line-height:1.6}' +
 ' a{color:#2563eb}' +
@@ -221,6 +248,8 @@ function dashboardHtml_(d) {
 '  .row{border-color:#1f2937} th{border-color:#1f2937} td{border-color:#161e2e}' +
 '  .note{background:#251d06;border-color:#5b4708;color:#fcd34d}' +
 '  input[type=checkbox]{background:#374151}' +
+'  textarea,select{background:#0b0f19;border-color:#374151}' +
+'  .replybox{background:#052e21;border-color:#065f46}' +
 '  .lead-cold{background:#1f2937;color:#9ca3af}' +
 ' }' +
 '</style>' +
@@ -249,6 +278,26 @@ function dashboardHtml_(d) {
     kpi_(s.todayWarm, 'دافئ اليوم', 'warm') +
     kpi_(s.pending, 'بانتظار موافقتك', '') +
     kpi_(s.allTotal, 'المجموع الكلي', '') +
+  '</div>' +
+
+  // ---- manual reply helper ----
+  '<div class="card">' +
+    '<h1 style="font-size:16px">جاوب بلا ما تربط شي منصة</h1>' +
+    '<p class="sub">لصق التعليق ديال الزبون هنا. غادي يعطيك الرد بالدارجة ديالك، ' +
+      'ونتا لي كتلصقو ف إنستغرام. ما كيمس حتى شي حساب.</p>' +
+    '<textarea id="q" rows="3" placeholder="مثلا: chhal taman dyal lmzdouj?"></textarea>' +
+    '<div class="qrow">' +
+      '<select id="qkind"><option value="comment">تعليق</option>' +
+        '<option value="dm">رسالة خاصة</option></select>' +
+      '<button id="go" class="big start" style="padding:10px 22px;font-size:14px">جاوب</button>' +
+    '</div>' +
+    '<div id="ans" style="display:none">' +
+      '<div id="warn" class="note" style="display:none"></div>' +
+      '<p id="meta" class="sub" style="margin:10px 0 4px"></p>' +
+      '<div id="reply" class="replybox"></div>' +
+      '<button id="copy" class="big start" style="padding:9px 20px;font-size:13px;' +
+        'margin-top:10px">نسخ الرد</button>' +
+    '</div>' +
   '</div>' +
 
   // ---- cost ----
@@ -332,6 +381,30 @@ function dashboardHtml_(d) {
 '      res.running?"الأوتوماسيون خدام":"الأوتوماسيون واقف";' +
 '    power.disabled=false;' +
 '  }).catch(function(e){alert(e);power.disabled=false});' +
+'};' +
+'var go=document.getElementById("go"),ansBox=document.getElementById("ans");' +
+'go.onclick=function(){' +
+'  var t=document.getElementById("q").value.trim();' +
+'  if(!t)return;' +
+'  go.disabled=true;go.textContent="كيفكر...";' +
+'  post({action:"draft",text:t,kind:document.getElementById("qkind").value})' +
+'  .then(function(r){' +
+'    go.disabled=false;go.textContent="جاوب";' +
+'    if(!r.ok){alert(r.error);return}' +
+'    ansBox.style.display="block";' +
+'    document.getElementById("reply").textContent=r.reply||"(ماشي سؤال، ما كاين ما يتجاوب)";' +
+'    document.getElementById("meta").textContent=r.client_type+" • "+r.lead;' +
+'    var w=document.getElementById("warn");' +
+'    w.style.display=r.warn?"block":"none";' +
+'    w.textContent=r.warn?("⚠️ "+r.warn):"";' +
+'  }).catch(function(e){go.disabled=false;go.textContent="جاوب";alert(e)});' +
+'};' +
+'document.getElementById("copy").onclick=function(){' +
+'  var el=document.getElementById("reply");' +
+'  navigator.clipboard.writeText(el.textContent).then(function(){' +
+'    var b=document.getElementById("copy");b.textContent="تنسخ ✓";' +
+'    setTimeout(function(){b.textContent="نسخ الرد"},1500);' +
+'  });' +
 '};' +
 'Array.prototype.forEach.call(document.querySelectorAll("input[data-act]"),function(el){' +
 '  el.onchange=function(){' +

@@ -98,6 +98,21 @@ get a new one.
 Visiting the plain web app URL without the token shows only "الخدمة خدامة ✅" and no data,
 which is what Meta and anyone else who finds the URL will see.
 
+## Using it without any platform connected
+
+If Meta access isn't available to you, the dashboard has a **جاوب بلا ما تربط شي منصة**
+box. Paste a customer's comment, get the reply in your Darija, copy it, paste it into
+Instagram yourself.
+
+It is not 24/7 and you still do the pasting, but it needs no Meta app, no API and no
+approval, and it carries **no ban risk** because nothing touches your account. Everything
+else works normally: the voice, the price rules, the unverified-topic guard, the cost
+tracking.
+
+Never use a browser bot to post for you instead. Instagram and TikTok detect automated
+commenting from a logged-in session, and a banned account costs far more than the
+paperwork does.
+
 ## Step 7 — Connect Instagram (the last piece)
 
 This needs a Meta developer app — tell me when you're at this step and I'll walk you through

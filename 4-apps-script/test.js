@@ -160,6 +160,27 @@ ok('platform toggle works', post({ dash: tok, action: 'platform', key: 'youtube'
 ok('platform rejects unknown', post({ dash: tok, action: 'platform', key: 'myspace' }).ok === false);
 ok('unknown action rejected', post({ dash: tok, action: 'delete_everything' }).ok === false);
 
+console.log('\n== manual reply helper ==');
+// Stub the Anthropic call so this needs no network and no key.
+global.__ROUTES = { 'api.anthropic.com': { body: {
+  content: [{ text: '{"reply":"550 dh l metre. sift lia l9ias f whatsapp 0666567672",' +
+                    '"needs_human":false,"client_type":"سؤال عن الثمن","lead":"ساخن"}' }],
+  usage: { input_tokens: 12, output_tokens: 34 } } } };
+H.props['ANTHROPIC_API_KEY'] = 'test';
+
+const dr = post({ dash: tok, action: 'draft', text: 'chhal taman dyal lmzdouj?' });
+ok('draft returns a reply', dr.ok === true && dr.reply.indexOf('550') !== -1, dr.reply);
+ok('draft classifies the lead', dr.lead === 'ساخن', dr.lead);
+ok('draft gives a wa.me link', (dr.whatsapp || '').indexOf('wa.me/212666567672') !== -1);
+ok('draft needs the token', post({ dash: 'bad', action: 'draft', text: 'x' }).ok === false);
+ok('empty text rejected', post({ dash: tok, action: 'draft', text: '   ' }).ok === false);
+// The unverified-topic guard must apply here exactly as it does automatically.
+const risky = post({ dash: tok, action: 'draft', text: 'واش كاين شي برومو؟' });
+ok('unverified topic is flagged', !!risky.warn, JSON.stringify(risky.warn));
+ok('manual drafts are metered too', usageForDay_(day).calls > cu.calls);
+delete H.props['ANTHROPIC_API_KEY'];
+global.__ROUTES = {};
+
 console.log('\n== escaping ==');
 setSetting_('DRAFT_ONLY_MODE', true);
 logToSheet_(mk('<img src=x onerror=alert(1)>', '"><script>bad()</script>'),
