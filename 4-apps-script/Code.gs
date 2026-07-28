@@ -318,7 +318,12 @@ function callClaudeWithRetry_(userContent) {
       payload: JSON.stringify({
         model: CONFIG.CLAUDE_MODEL,
         max_tokens: 400,
-        system: SYSTEM_PROMPT,
+        // The system prompt is ~5600 tokens and byte-identical on every call, so it is
+        // ~90% of the bill. Marking it cacheable makes a repeat read cost a tenth of a
+        // fresh one. The cache lives about 5 minutes: a lone message still pays full
+        // price, but a burst of comments after a post — the normal case — mostly hits.
+        system: [{ type: 'text', text: SYSTEM_PROMPT,
+                   cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: userContent }],
       }),
       muteHttpExceptions: true,

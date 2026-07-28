@@ -91,7 +91,12 @@ function setPlatformEnabled_(name, on) {
  *
  * Prices are per million tokens, Haiku 4.5. If you switch CLAUDE_MODEL, update these.
  */
-const PRICE_PER_MTOK = { input: 1.00, output: 5.00 };
+const PRICE_PER_MTOK = {
+  input: 1.00,
+  output: 5.00,
+  cacheWrite: 1.25,   // first call that stores the prompt: 1.25x input
+  cacheRead: 0.10,    // every later call that reuses it: 0.1x input
+};
 
 /** Rough MAD conversion, for a number that means something locally. */
 const USD_TO_MAD = 10.0;
@@ -109,13 +114,17 @@ function recordUsage_(usage) {
     const props = PropertiesService.getScriptProperties();
     const key = PROP.USAGE_PREFIX + day;
 
-    let d = { calls: 0, input: 0, output: 0 };
+    let d = { calls: 0, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
     const raw = props.getProperty(key);
     if (raw) { try { d = JSON.parse(raw); } catch (e) { /* start fresh */ } }
 
     d.calls += 1;
     d.input += usage.input_tokens || 0;
     d.output += usage.output_tokens || 0;
+    // Cached tokens are reported separately and billed at different rates. Records
+    // written before caching existed have no such fields, hence the || 0 throughout.
+    d.cacheWrite = (d.cacheWrite || 0) + (usage.cache_creation_input_tokens || 0);
+    d.cacheRead = (d.cacheRead || 0) + (usage.cache_read_input_tokens || 0);
     props.setProperty(key, JSON.stringify(d));
   } catch (err) {
     Logger.log('recordUsage failed (ignored): ' + err);
@@ -124,20 +133,32 @@ function recordUsage_(usage) {
 
 function costOf_(d) {
   const usd = (d.input / 1e6) * PRICE_PER_MTOK.input +
-              (d.output / 1e6) * PRICE_PER_MTOK.output;
+              (d.output / 1e6) * PRICE_PER_MTOK.output +
+              ((d.cacheWrite || 0) / 1e6) * PRICE_PER_MTOK.cacheWrite +
+              ((d.cacheRead || 0) / 1e6) * PRICE_PER_MTOK.cacheRead;
   return { usd: usd, mad: usd * USD_TO_MAD };
 }
 
+/** Share of cacheable tokens that were served from cache. 0 when nothing was cached. */
+function cacheHitRate_(d) {
+  const total = (d.cacheWrite || 0) + (d.cacheRead || 0);
+  return total ? (d.cacheRead || 0) / total : 0;
+}
+
+const EMPTY_USAGE = { calls: 0, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+
 function usageForDay_(day) {
   const raw = PropertiesService.getScriptProperties().getProperty(PROP.USAGE_PREFIX + day);
-  if (!raw) return { calls: 0, input: 0, output: 0 };
-  try { return JSON.parse(raw); } catch (e) { return { calls: 0, input: 0, output: 0 }; }
+  if (!raw) return Object.assign({}, EMPTY_USAGE);
+  try {
+    return Object.assign({}, EMPTY_USAGE, JSON.parse(raw));
+  } catch (e) { return Object.assign({}, EMPTY_USAGE); }
 }
 
 /** Totals over the last n days (inclusive of today), plus a per-day series. */
 function usageWindow_(days) {
   const series = [];
-  const total = { calls: 0, input: 0, output: 0 };
+  const total = Object.assign({}, EMPTY_USAGE);
   const now = new Date();
   for (let i = days - 1; i >= 0; i--) {
     const dt = new Date(now.getTime() - i * 86400000);
@@ -145,6 +166,7 @@ function usageWindow_(days) {
     const d = usageForDay_(day);
     series.push({ day: day, calls: d.calls, cost: costOf_(d) });
     total.calls += d.calls; total.input += d.input; total.output += d.output;
+    total.cacheWrite += d.cacheWrite; total.cacheRead += d.cacheRead;
   }
   return { series: series, total: total, cost: costOf_(total) };
 }

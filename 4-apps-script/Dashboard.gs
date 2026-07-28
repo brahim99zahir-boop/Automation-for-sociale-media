@@ -260,6 +260,7 @@ function dashboardHtml_(d) {
       kpi_(money_(d.cost.week), 'آخر 7 أيام', '') +
       kpi_(money_(d.cost.month), 'آخر 30 يوم', '') +
       kpi_(d.tokens.month.calls, 'طلب على Claude (30 يوم)', '') +
+      kpi_(Math.round(cacheHitRate_(d.tokens.month) * 100) + '%', 'من الكاش (أرخص 10 مرات)', '') +
     '</div>' +
     '<div class="chart">' + bars + '</div>' +
     '<p class="sub" style="margin-top:14px">' +

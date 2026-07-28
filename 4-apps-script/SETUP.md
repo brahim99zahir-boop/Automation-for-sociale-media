@@ -165,6 +165,14 @@ dashboard are actual spend, not an estimate. At Haiku 4.5 pricing ($1 per millio
 tokens, $5 per million output) a typical comment costs a small fraction of a centime — the
 30-day total is the number to watch.
 
+**Prompt caching is on.** The system prompt is ~5,600 tokens and identical on every call,
+which is about 90% of the bill. It's marked cacheable, so a repeat read costs a tenth of a
+fresh one. The cache lives ~5 minutes, so a message arriving alone still pays full price
+while a burst of comments after a post mostly hits cache. The dashboard shows the hit rate.
+
+At 2000 messages a month that's roughly **140 MAD** with no cache hits and **26 MAD** if
+most hit — the real figure lands in between, closer to the low end the busier you get.
+
 **The dashboard cannot show your remaining Claude balance.** Anthropic's API has no endpoint
 that reports account credit; the only spend data it returns is the token count for the
 request you just made. So the dashboard shows what you have *spent* and links to
