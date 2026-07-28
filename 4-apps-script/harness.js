@@ -50,7 +50,9 @@ global.SpreadsheetApp = {
 };
 global.ScriptApp = { getService: () => ({ getUrl: () => 'https://script.example/exec' }) };
 global.HtmlService = {
+  XFrameOptionsMode: { ALLOWALL: 'ALLOWALL', DEFAULT: 'DEFAULT' },
   createHtmlOutput: h => ({ _h: h, setTitle() { return this; }, addMetaTag() { return this; },
+                            setXFrameOptionsMode() { return this; },
                             getContent() { return this._h; } }),
 };
 global.ContentService = {

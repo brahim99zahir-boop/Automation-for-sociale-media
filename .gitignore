@@ -26,3 +26,6 @@ node_modules/
 
 # ruflo/claude-flow runtime state — counters, not project content
 .claude-flow/
+
+# marketing site — dropped, dashboard is the only site wanted
+5-website/

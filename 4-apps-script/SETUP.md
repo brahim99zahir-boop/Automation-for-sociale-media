@@ -86,6 +86,8 @@ in `?dash=` followed by a long random string. That is your private control panel
 - what Claude has actually cost — today, 7 days, 30 days, in dirhams
 - switches for test mode, "ask me first", the daily summary, and each platform
 - the last 60 messages with the reply that was sent
+- **شحال من واحد وصل للواتساب** — how many people actually opened WhatsApp, and the
+  conversion rate against messages received
 
 **Bookmark that URL and keep it private.** Because the web app has to be open to
 "Anyone" (Step 6), the script has no way to tell who is visiting — Google doesn't pass it
@@ -179,6 +181,16 @@ Every Claude call is metered where the request is made, so the dirham figures on
 dashboard are actual spend, not an estimate. At Haiku 4.5 pricing ($1 per million input
 tokens, $5 per million output) a typical comment costs a small fraction of a centime — the
 30-day total is the number to watch.
+
+## Counting who reaches WhatsApp
+
+Every WhatsApp link the system hands out (the Instagram private reply, the approval email,
+the manual helper) goes through the web app first, which counts the click and then bounces
+straight to WhatsApp. The customer sees a redirect for a fraction of a second.
+
+**It cannot count everyone.** A phone number typed as text in a comment leaves no trace,
+and wa.me is Meta's domain, so only links we hand out ourselves are countable. Treat the
+number as a floor, not a total — the real figure is higher.
 
 **Prompt caching is on.** The system prompt is ~5,600 tokens and identical on every call,
 which is about 90% of the bill. It's marked cacheable, so a repeat read costs a tenth of a

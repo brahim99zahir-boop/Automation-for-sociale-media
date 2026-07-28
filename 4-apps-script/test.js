@@ -171,7 +171,9 @@ H.props['ANTHROPIC_API_KEY'] = 'test';
 const dr = post({ dash: tok, action: 'draft', text: 'chhal taman dyal lmzdouj?' });
 ok('draft returns a reply', dr.ok === true && dr.reply.indexOf('550') !== -1, dr.reply);
 ok('draft classifies the lead', dr.lead === 'ساخن', dr.lead);
-ok('draft gives a wa.me link', (dr.whatsapp || '').indexOf('wa.me/212666567672') !== -1);
+ok('draft gives a tracked link, not a raw wa.me',
+   (dr.whatsapp || '').indexOf('w=1') !== -1 && dr.whatsapp.indexOf('s=manual') !== -1,
+   dr.whatsapp);
 ok('draft needs the token', post({ dash: 'bad', action: 'draft', text: 'x' }).ok === false);
 ok('empty text rejected', post({ dash: tok, action: 'draft', text: '   ' }).ok === false);
 // The unverified-topic guard must apply here exactly as it does automatically.
@@ -180,6 +182,19 @@ ok('unverified topic is flagged', !!risky.warn, JSON.stringify(risky.warn));
 ok('manual drafts are metered too', usageForDay_(day).calls > cu.calls);
 delete H.props['ANTHROPIC_API_KEY'];
 global.__ROUTES = {};
+
+console.log('\n== whatsapp click tracking ==');
+const before = clicksForDay_(day);
+const hop = doGet({ parameter: { w: '1', s: 'manual', u: 'zbon1' } }).getContent();
+ok('click is counted', clicksForDay_(day) === before + 1, clicksForDay_(day));
+ok('redirects to the real wa.me', hop.indexOf('wa.me/212666567672') !== -1);
+ok('carries the prefilled message', hop.indexOf('text=') !== -1);
+doGet({ parameter: { w: '1' } });
+ok('counts again without a username', clicksForDay_(day) === before + 2);
+ok('window sums the days', clicksWindow_(7) >= before + 2);
+ok('unknown day is zero, not NaN', clicksForDay_('2019-01-01') === 0);
+// The hop must stay public — a customer has no token.
+ok('needs no dashboard token', hop.indexOf('كنوجهوك') !== -1);
 
 console.log('\n== escaping ==');
 setSetting_('DRAFT_ONLY_MODE', true);

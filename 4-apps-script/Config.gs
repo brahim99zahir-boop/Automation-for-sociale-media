@@ -125,6 +125,8 @@ const PROP = {
   USAGE_PREFIX: 'usage_',
   // Secret that gates the dashboard, because the web app itself must stay public.
   DASHBOARD_TOKEN: 'DASHBOARD_TOKEN',
+  // One key per day: clicks_2026-07-28 -> number of WhatsApp link opens.
+  CLICKS_PREFIX: 'clicks_',
 };
 
 /**

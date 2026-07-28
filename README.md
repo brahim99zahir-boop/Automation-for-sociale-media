@@ -23,7 +23,6 @@ running whether or not your computer is on.
 4-apps-script/   the live system   (run `node test.js` after any change — 82 assertions)
 1-voice-profile/ voice + what 708 real posts measured
 3-workflows/     facts-for-ai.md — the product facts
-5-website/       public site, scaffolded, no page yet
 skills/          portable Claude Code skills built from this project
 archive/         earlier architectures, kept as fallback
 ```

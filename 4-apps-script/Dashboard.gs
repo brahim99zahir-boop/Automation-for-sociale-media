@@ -49,9 +49,11 @@ function renderDashboard_() {
         todayWarm: count(todayRows, 'دافئ'),
         allTotal: rows.length,
         allHot: count(rows, 'ساخن'),
+        allWarm: count(rows, 'دافئ'),
         pending: rows.filter(r => String(r[8]).indexOf('بانتظار') === 0).length,
       },
       cost: { today: todayCost, week: u7.cost, month: u30.cost, series: u7.series },
+      clicks: { today: clicksForDay_(today), week: clicksWindow_(7), month: clicksWindow_(30) },
       tokens: { today: todayUse, month: u30.total },
       toggles: {
         DRAFT_ONLY_MODE: getSetting_('DRAFT_ONLY_MODE'),
@@ -119,7 +121,7 @@ function handleDashboardAction_(body) {
       return {
         ok: true, reply: ai.reply || '', lead: ai.lead, client_type: ai.client_type,
         warn: risky || (ai.needs_human ? 'راجعه مزيان قبل ما تصيفطو' : ''),
-        whatsapp: whatsappLink_(msg.author),
+        whatsapp: trackedWhatsappLink_(msg.author, 'manual'),
       };
     }
 
@@ -278,6 +280,23 @@ function dashboardHtml_(d) {
     kpi_(s.todayWarm, 'دافئ اليوم', 'warm') +
     kpi_(s.pending, 'بانتظار موافقتك', '') +
     kpi_(s.allTotal, 'المجموع الكلي', '') +
+  '</div>' +
+
+  // ---- the funnel: what actually reaches WhatsApp ----
+  '<div class="card">' +
+    '<h1 style="font-size:16px">شحال من واحد وصل للواتساب</h1>' +
+    '<p class="sub">30 يوم. النسبة = شحال من رسالة ولات كليك على الواتساب.</p>' +
+    '<div class="grid">' +
+      kpi_(s.allTotal, 'رسائل توصلات', '') +
+      kpi_(s.allHot + s.allWarm, 'مهتمين (ساخن + دافئ)', 'warm') +
+      kpi_(d.clicks.month, 'دخلو للواتساب', 'hot') +
+      kpi_(s.allTotal ? Math.round(d.clicks.month / s.allTotal * 100) + '%' : '0%',
+           'نسبة التحويل', '') +
+    '</div>' +
+    '<p class="sub" style="margin-top:12px">' +
+      'اليوم ' + d.clicks.today + ' • هاد الأسبوع ' + d.clicks.week + '</p>' +
+    '<div class="note">كنحسبو غير الروابط لي كنعطيو حنا (الرسالة الخاصة، الإيميل، ' +
+      'ولوحة التحكم). إلا كتب الزبون النمرة بيدو ما كنبانش هنا.</div>' +
   '</div>' +
 
   // ---- manual reply helper ----

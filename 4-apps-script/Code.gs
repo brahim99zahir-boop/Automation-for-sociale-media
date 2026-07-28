@@ -176,7 +176,7 @@ function maybePrivateReply_(msg, ai) {
   try {
     Instagram.privateReplyToComment(msg.id,
       'إلا بغيتي الثمن بالضبط، صيفط لينا القياس ديال الشباك هنا:\n' +
-      whatsappLink_(msg.author));
+      trackedWhatsappLink_(msg.author, 'ig-private-reply'));
   } catch (err) {
     Logger.log('Private reply skipped: ' + err);   // never let a DM failure break the flow
   }
@@ -391,8 +391,58 @@ function parseAiJson_(rawInput) {
 /** wa.me link that opens WhatsApp with the first message already written. */
 function whatsappLink_(username) {
   const text = 'السلام عليكم، جاي من السوشيال ميديا' +
-    (username ? ' (@' + username + ')' : '') + '، بغيت نسول على الموستيكير';
+    (username ? ' (@' + username + ')' : '') + '، بغيت نسول على الموستكير';
   return 'https://wa.me/' + CONFIG.WHATSAPP_INTL + '?text=' + encodeURIComponent(text);
+}
+
+/**
+ * The same link, but routed through this web app so the click can be counted.
+ *
+ * There is no other way to know whether anyone actually reached WhatsApp: wa.me is
+ * Meta's domain, and a phone number typed as text in a comment leaves no trace at all.
+ * Only links we hand out ourselves are countable, so only those get wrapped.
+ */
+function trackedWhatsappLink_(username, source) {
+  return ScriptApp.getService().getUrl() +
+    '?w=1&s=' + encodeURIComponent(source || 'unknown') +
+    (username ? '&u=' + encodeURIComponent(username) : '');
+}
+
+/** Count the click, then bounce to WhatsApp. */
+function handleWhatsappRedirect_(p) {
+  try {
+    const day = Utilities.formatDate(new Date(), 'Africa/Casablanca', 'yyyy-MM-dd');
+    const props = PropertiesService.getScriptProperties();
+    const key = PROP.CLICKS_PREFIX + day;
+    props.setProperty(key, String((parseInt(props.getProperty(key), 10) || 0) + 1));
+  } catch (err) {
+    Logger.log('click count failed (ignored): ' + err);   // never block the customer
+  }
+
+  const target = whatsappLink_(p.u || '');
+  // Apps Script cannot issue a real 302, so this is a meta-refresh with a JS fallback
+  // and a plain link underneath for anything that runs neither.
+  return HtmlService.createHtmlOutput(
+    '<meta http-equiv="refresh" content="0;url=' + escapeHtml_(target) + '">' +
+    '<script>location.replace(' + JSON.stringify(target) + ')</script>' +
+    '<div dir="rtl" style="font-family:Arial;text-align:center;padding:40px">' +
+    'كنوجهوك للواتساب... <a href="' + escapeHtml_(target) + '">دوز من هنا</a></div>'
+  ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function clicksForDay_(day) {
+  return parseInt(
+    PropertiesService.getScriptProperties().getProperty(PROP.CLICKS_PREFIX + day), 10) || 0;
+}
+
+function clicksWindow_(days) {
+  let total = 0;
+  const now = new Date();
+  for (let i = 0; i < days; i++) {
+    total += clicksForDay_(Utilities.formatDate(
+      new Date(now.getTime() - i * 86400000), 'Africa/Casablanca', 'yyyy-MM-dd'));
+  }
+  return total;
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +460,9 @@ function doGet(e) {
   }
 
   if (p.action && p.token) return handleApproval_(p.action, p.token);
+
+  // Tracked WhatsApp hop. Public on purpose: customers follow this, not the owner.
+  if (p.w) return handleWhatsappRedirect_(p);
 
   // Private control panel. Wrong or missing token falls through to the public page
   // below rather than saying "wrong token" — no point confirming the URL exists.
@@ -551,7 +604,8 @@ function sendApprovalEmail_(msg, ai, token) {
         '<a href="' + reject + '" style="background:#dc2626;color:#fff;padding:12px 24px;' +
           'text-decoration:none;border-radius:6px">ارفض</a>' +
       '</p>' +
-      '<p style="margin-top:18px"><a href="' + whatsappLink_(msg.author) + '">' +
+      '<p style="margin-top:18px"><a href="' +
+        trackedWhatsappLink_(msg.author, 'approval-email') + '">' +
         'ولا بدا معاه الحديث ديريكت ف الواتساب ←</a></p>' +
       '<p style="color:#9ca3af;font-size:12px;margin-top:22px">الروابط كيخدموا مرة وحدة.</p>' +
     '</div>';
