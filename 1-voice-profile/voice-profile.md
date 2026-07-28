@@ -86,4 +86,4 @@ actual replies to real comments/DMs, covering a range of situations: pricing que
 complaints, delivery questions, a happy customer), re-run this same prompt
 (`voice-profile-prompt.txt`) against the full set and replace this file. Do not wire this draft
 into `system-prompt.txt` for production use without that follow-up — it's flagged in
-`GUIDE.md`'s quality gate.
+the quality gate (now `archive/GUIDE.md`).

@@ -7,7 +7,7 @@ Sources:
   3-workflows/facts-for-ai.md         -> WHAT it knows (the only facts it may state)
 
 Note there are two FAQ-ish files, on purpose:
-  product-faq.md  is for the humans maintaining this project — it carries open questions,
+  facts-for-ai.md is the only source of product facts — it carries open questions,
                   supersession history, and "confirm with the owner" notes.
   facts-for-ai.md is what the model actually reads — facts only, no project chatter, so it
                   can never repeat internal notes at a customer.
@@ -91,7 +91,7 @@ def main() -> None:
         " *\n"
         " * GENERATED FILE — do not edit here, your changes will be overwritten.\n"
         " * Sources: 1-voice-profile/reply-playbook.md (how it talks)\n"
-        " *          3-workflows/product-faq.md        (what it knows)\n"
+        " *          3-workflows/facts-for-ai.md      (what it knows)\n"
         " * Rebuild:  python3 build-system-prompt.py\n"
         " */\n\n"
         "const SYSTEM_PROMPT = `" + esc + "`;\n"

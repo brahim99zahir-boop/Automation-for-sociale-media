@@ -1,9 +1,9 @@
 # The Reply Playbook — how the AI thinks, sells, and writes
 
 This is the strategy + voice half of the system prompt. The facts half comes from
-`3-workflows/product-faq.md`. `build-system-prompt.py` merges them into `system-prompt.txt`.
+`3-workflows/facts-for-ai.md`. `build-system-prompt.py` merges them into `system-prompt.txt`.
 
-Edit this file to change **how** it talks. Edit the FAQ to change **what** it knows.
+Edit this file to change **how** it talks. Edit the facts file to change **what** it knows.
 
 ---
 

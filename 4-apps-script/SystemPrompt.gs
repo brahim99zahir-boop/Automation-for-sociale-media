@@ -4,7 +4,7 @@
  *
  * GENERATED FILE — do not edit here, your changes will be overwritten.
  * Sources: 1-voice-profile/reply-playbook.md (how it talks)
- *          3-workflows/product-faq.md        (what it knows)
+ *          3-workflows/facts-for-ai.md      (what it knows)
  * Rebuild:  python3 build-system-prompt.py
  */
 
