@@ -85,6 +85,30 @@ ok('B was NOT touched', H.SHEETDATA[rowB - 1][8] === 'بانتظار موافق�
    H.SHEETDATA[rowB - 1][8]);
 ok('row 0 is a safe no-op', (() => { updateSheetStatus_(0, 'x'); return true; })());
 
+console.log('\n== parallel fetching ==');
+PLATFORMS.instagram.igUserId = 'IG123';
+H.props['META_ACCESS_TOKEN'] = 'tok';
+global.__ROUTES = {
+  '/IG123/media':  { body: { data: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }] } },
+  '/p1/comments':  { body: { data: [{ id: 'c1', text: 'bch7al?', username: 'a' }] } },
+  '/p2/comments':  { code: 500, body: 'boom' },            // one post fails
+  '/p3/comments':  { body: { data: [{ id: 'c3', text: 'chhal?', username: 'c' }] } },
+};
+global.__CALLS = []; global.__BATCHES = 0;
+const got = Instagram.fetchComments();
+ok('one batched call, not one per post', global.__BATCHES === 1, global.__BATCHES);
+ok('a failing post does not lose the others', got.length === 2, got.length);
+ok('comments keep their own postId',
+   got[0].postId === 'p1' && got[1].postId === 'p3',
+   got.map(g => g.postId).join(','));
+ok('text and author survive', got[0].text === 'bch7al?' && got[1].author === 'c');
+ok('empty url list makes no request',
+   (() => { global.__BATCHES = 0; const r = httpGetAllJson_([]);
+            return r.length === 0 && global.__BATCHES === 0; })());
+PLATFORMS.instagram.igUserId = '';
+delete H.props['META_ACCESS_TOKEN'];
+global.__ROUTES = {};
+
 console.log('\n== dashboard auth ==');
 const url = setupDashboard();
 const tok = url.split('dash=')[1];

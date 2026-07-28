@@ -31,6 +31,36 @@ function httpGetJson_(url, headers) {
   return JSON.parse(body);
 }
 
+/**
+ * Fetch several URLs at once. Meta gives you a list of posts and then wants one request
+ * per post for its comments, so a 5-post scan was 5 sequential round trips per platform
+ * on top of the listing call. fetchAll issues them together, turning ~6 round trips into
+ * ~2 — which matters against the 6-minute Apps Script execution limit once more than one
+ * platform is switched on.
+ *
+ * Returns one entry per URL, in order, and `null` where that URL failed. A single bad
+ * post must not lose the comments on the other four, which is what throwing here would
+ * have done.
+ */
+function httpGetAllJson_(urls, headers) {
+  if (!urls.length) return [];
+  const responses = UrlFetchApp.fetchAll(urls.map(u => ({
+    url: u, method: 'get', muteHttpExceptions: true, headers: headers || {},
+  })));
+  return responses.map((res, i) => {
+    try {
+      if (res.getResponseCode() !== 200) {
+        Logger.log('GET ' + res.getResponseCode() + ' for ' + urls[i].slice(0, 80));
+        return null;
+      }
+      return JSON.parse(res.getContentText());
+    } catch (e) {
+      Logger.log('Unparseable response for ' + urls[i].slice(0, 80) + ': ' + e);
+      return null;
+    }
+  });
+}
+
 function httpPost_(url, payload, headers, asJson) {
   const opts = {
     method: 'post',
@@ -65,18 +95,20 @@ const Instagram = {
     const media = httpGetJson_(GRAPH + cfg.igUserId + '/media?fields=id&limit=' +
       CONFIG.MEDIA_TO_SCAN + '&access_token=' + encodeURIComponent(token)).data || [];
 
-    for (const m of media) {
-      const comments = httpGetJson_(GRAPH + m.id +
-        '/comments?fields=id,text,username&limit=25&access_token=' +
-        encodeURIComponent(token)).data || [];
+    const bodies = httpGetAllJson_(media.map(m => GRAPH + m.id +
+      '/comments?fields=id,text,username&limit=25&access_token=' +
+      encodeURIComponent(token)));
+
+    bodies.forEach((body, i) => {
+      const comments = (body && body.data) || [];
       for (const c of comments) {
         if (!c.text) continue;
         out.push({
           id: c.id, text: c.text, author: c.username || 'unknown',
-          platform: 'instagram', postId: m.id, kind: 'comment',
+          platform: 'instagram', postId: media[i].id, kind: 'comment',
         });
       }
-    }
+    });
     return out;
   },
 
@@ -144,10 +176,12 @@ const Facebook = {
     const posts = httpGetJson_(GRAPH + cfg.pageId + '/posts?fields=id&limit=' +
       CONFIG.MEDIA_TO_SCAN + '&access_token=' + encodeURIComponent(token)).data || [];
 
-    for (const p of posts) {
-      const comments = httpGetJson_(GRAPH + p.id +
-        '/comments?fields=id,message,from&limit=25&access_token=' +
-        encodeURIComponent(token)).data || [];
+    const bodies = httpGetAllJson_(posts.map(p => GRAPH + p.id +
+      '/comments?fields=id,message,from&limit=25&access_token=' +
+      encodeURIComponent(token)));
+
+    bodies.forEach((body, i) => {
+      const comments = (body && body.data) || [];
       for (const c of comments) {
         if (!c.message) continue;
         // Don't reply to our own Page's comments.
@@ -155,10 +189,10 @@ const Facebook = {
         out.push({
           id: c.id, text: c.message,
           author: (c.from && c.from.name) || 'unknown',
-          platform: 'facebook', postId: p.id, kind: 'comment',
+          platform: 'facebook', postId: posts[i].id, kind: 'comment',
         });
       }
-    }
+    });
     return out;
   },
 

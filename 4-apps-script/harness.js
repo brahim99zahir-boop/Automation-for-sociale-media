@@ -61,7 +61,29 @@ global.GmailApp = { sendEmail: (...a) => EMAILS.push(a) };
 const EMAILS = [];
 global.__EMAILS = EMAILS;
 global.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
-global.UrlFetchApp = { fetch: () => { throw new Error('no network in harness'); } };
+// Scriptable HTTP stub. Tests set global.__ROUTES = {urlSubstring: {code, body}}.
+const mkRes = (code, body) => ({
+  getResponseCode: () => code,
+  getContentText: () => (typeof body === 'string' ? body : JSON.stringify(body)),
+});
+function route_(url) {
+  global.__CALLS.push(url);
+  const routes = global.__ROUTES || {};
+  for (const key of Object.keys(routes)) {
+    if (url.indexOf(key) !== -1) {
+      const r = routes[key];
+      return mkRes(r.code || 200, r.body);
+    }
+  }
+  return mkRes(404, '{}');
+}
+global.__CALLS = [];
+global.UrlFetchApp = {
+  fetch: (url) => route_(url),
+  // The real fetchAll takes request objects and returns responses in the same order.
+  fetchAll: (reqs) => { global.__BATCHES = (global.__BATCHES || 0) + 1;
+                        return reqs.map(r => route_(r.url)); },
+};
 
 // ---- load the real source ---------------------------------------------
 // Order matters: Config defines PROP/CONFIG that Settings reads.
