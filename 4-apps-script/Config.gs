@@ -115,6 +115,8 @@ const PROP = {
   META_TOKEN: 'META_ACCESS_TOKEN',
   YOUTUBE_TOKEN: 'YOUTUBE_ACCESS_TOKEN',
   TIKTOK_TOKEN: 'TIKTOK_ACCESS_TOKEN',
+  // Google Cloud Speech-to-Text, for voice notes. Optional — the rest works without it.
+  GOOGLE_STT_KEY: 'GOOGLE_STT_KEY',
   SEEN_IDS: 'SEEN_COMMENT_IDS',
   PENDING_PREFIX: 'pending_',
 
@@ -140,16 +142,19 @@ function setSecrets() {
   const metaToken = '';      // Meta long-lived Page token (Instagram + Facebook)
   const youtubeToken = '';   // Google OAuth access token (YouTube) — optional
   const tiktokToken = '';    // TikTok Business API token — optional
+  const googleSttKey = '';   // Google Cloud Speech-to-Text API key — optional, voice notes
 
   if (anthropicKey) props.setProperty(PROP.ANTHROPIC_KEY, anthropicKey);
   if (metaToken) props.setProperty(PROP.META_TOKEN, metaToken);
   if (youtubeToken) props.setProperty(PROP.YOUTUBE_TOKEN, youtubeToken);
   if (tiktokToken) props.setProperty(PROP.TIKTOK_TOKEN, tiktokToken);
+  if (googleSttKey) props.setProperty(PROP.GOOGLE_STT_KEY, googleSttKey);
 
   Logger.log('Anthropic: ' + !!props.getProperty(PROP.ANTHROPIC_KEY));
   Logger.log('Meta:      ' + !!props.getProperty(PROP.META_TOKEN));
   Logger.log('YouTube:   ' + !!props.getProperty(PROP.YOUTUBE_TOKEN));
   Logger.log('TikTok:    ' + !!props.getProperty(PROP.TIKTOK_TOKEN));
+  Logger.log('GoogleSTT: ' + !!props.getProperty(PROP.GOOGLE_STT_KEY));
   Logger.log('Now DELETE the pasted values above and save this file again.');
 }
 

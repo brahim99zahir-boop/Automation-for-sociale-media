@@ -236,6 +236,55 @@ UrlFetchApp.fetch = origFetch;
 delete H.props['ANTHROPIC_API_KEY'];
 global.__ROUTES = {};
 
+console.log('\n== voice notes ==');
+ok('no key -> clear message, not a crash',
+   post({ dash: tok, action: 'voice', audio: 'x', mime: 'audio/ogg' }).error.indexOf('Google Speech') !== -1);
+
+// Format mapping. m4a is genuinely unsupported by Google sync recognize.
+ok('ogg -> OGG_OPUS', sttEncodingFor_('audio/ogg; codecs=opus') === 'OGG_OPUS');
+ok('mp3 -> MP3', sttEncodingFor_('audio/mpeg') === 'MP3');
+ok('wav -> LINEAR16', sttEncodingFor_('audio/wav') === 'LINEAR16');
+ok('m4a unsupported', sttEncodingFor_('audio/mp4') === '');
+ok('unknown unsupported', sttEncodingFor_('') === '');
+
+H.props['GOOGLE_STT_KEY'] = 'k';
+H.props['ANTHROPIC_API_KEY'] = 'test';
+const origFetch2 = UrlFetchApp.fetch;
+let sttBody = { results: [{ alternatives: [{ transcript: 'بغيت نعرف الثمن', confidence: 0.93 }] }] };
+UrlFetchApp.fetch = function (url) {
+  if (String(url).indexOf('speech.googleapis') !== -1) {
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify(sttBody) };
+  }
+  return { getResponseCode: () => 200, getContentText: () => JSON.stringify({
+    content: [{ text: '{"reply":"550 درهم للمتر. صيفط ليا القياس ف الواتساب 0666567672",' +
+      '"needs_human":false,"client_type":"سؤال عن الثمن","lead":"ساخن"}' }],
+    usage: { input_tokens: 10, output_tokens: 20 } }) };
+};
+
+const v = post({ dash: tok, action: 'voice', audio: 'ZmFrZQ==', mime: 'audio/ogg' });
+ok('transcript is returned to the user', v.transcript === 'بغيت نعرف الثمن', v.transcript);
+ok('confidence is shown', v.confidence === 93, v.confidence);
+ok('reply is generated from it', v.reply.indexOf('550') !== -1);
+ok('good confidence -> no shaky warning', (v.warn || '').indexOf('ما تفهمش') === -1);
+
+// The safety case: a transcript the model is unsure about must be flagged, not sent blind.
+sttBody = { results: [{ alternatives: [{ transcript: 'شي حاجة ما مفهوماش', confidence: 0.41 }] }] };
+const shaky = post({ dash: tok, action: 'voice', audio: 'ZmFrZQ==', mime: 'audio/ogg' });
+ok('low confidence is flagged', shaky.warn.indexOf('ما تفهمش') !== -1, shaky.warn);
+ok('transcript still shown when shaky', shaky.transcript.length > 0);
+
+sttBody = { results: [] };
+const silent = post({ dash: tok, action: 'voice', audio: 'ZmFrZQ==', mime: 'audio/ogg' });
+ok('nothing heard -> tells you to listen', silent.ok === true && silent.warn.indexOf('سمعو نتا') !== -1);
+ok('nothing heard -> no invented reply', silent.reply === '');
+
+ok('unsupported format -> honest error',
+   post({ dash: tok, action: 'voice', audio: 'x', mime: 'audio/mp4' }).error.indexOf('ما مدعومش') !== -1);
+ok('voice needs the token', post({ dash: 'bad', action: 'voice', audio: 'x' }).ok === false);
+
+UrlFetchApp.fetch = origFetch2;
+delete H.props['GOOGLE_STT_KEY']; delete H.props['ANTHROPIC_API_KEY'];
+
 console.log('\n== whatsapp click tracking ==');
 const before = clicksForDay_(day);
 const hop = doGet({ parameter: { w: '1', s: 'manual', u: 'zbon1' } }).getContent();

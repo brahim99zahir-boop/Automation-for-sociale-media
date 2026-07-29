@@ -119,6 +119,34 @@ writes a reply for each one. You copy them across. Twelve comments per screensho
 Instagram is never contacted, so there is nothing to authorise and nothing to be banned
 for. Your own comments are filtered out in code, not just asked of the model.
 
+**🎤 Voice notes — optional, and test it before you trust it.**
+
+The Claude API has no audio input at all: it takes text, images and documents. So a voice
+note has to be turned into text first, and that step is the least reliable thing in this
+whole system.
+
+Whisper was tried on this project's own videos and produced nonsense — it invented words
+and an English name, because its Arabic training is essentially Modern Standard, and
+Darija is close to a different language to it. Google Cloud Speech-to-Text has an **ar-MA**
+locale trained on Moroccan speech, which is what the voice button uses.
+
+**It has not been verified against real customer audio.** Before relying on it:
+
+1. Create a Google Cloud project, enable **Cloud Speech-to-Text API**, make an API key
+2. Put it in `googleSttKey` in `setSecrets()`, Run, then delete it from the code
+3. Send three real voice notes through the 🎤 button and read the transcripts
+
+If the transcripts are recognisable Darija, use it. If they read like nonsense, don't —
+listen to the notes yourself. Google charges about $0.016/minute after 60 free minutes a
+month, so testing costs nothing.
+
+The dashboard always shows **what it heard** and a **confidence percentage**, and warns
+below 70%, precisely because a wrong transcript looks like a real message. Never send a
+reply without reading the transcript above it.
+
+Limits: about one minute per note, and WhatsApp's `.ogg` works. Instagram's `.m4a` does
+not — Google's synchronous endpoint doesn't accept it, and you get a clear message saying so.
+
 **Or paste one comment** into the box below it, if that is all you need.
 
 It is not 24/7 and you still do the pasting, but it needs no Meta app, no API and no

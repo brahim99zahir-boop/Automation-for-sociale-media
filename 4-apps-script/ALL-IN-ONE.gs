@@ -129,6 +129,8 @@ const PROP = {
   META_TOKEN: 'META_ACCESS_TOKEN',
   YOUTUBE_TOKEN: 'YOUTUBE_ACCESS_TOKEN',
   TIKTOK_TOKEN: 'TIKTOK_ACCESS_TOKEN',
+  // Google Cloud Speech-to-Text, for voice notes. Optional — the rest works without it.
+  GOOGLE_STT_KEY: 'GOOGLE_STT_KEY',
   SEEN_IDS: 'SEEN_COMMENT_IDS',
   PENDING_PREFIX: 'pending_',
 
@@ -154,16 +156,19 @@ function setSecrets() {
   const metaToken = '';      // Meta long-lived Page token (Instagram + Facebook)
   const youtubeToken = '';   // Google OAuth access token (YouTube) — optional
   const tiktokToken = '';    // TikTok Business API token — optional
+  const googleSttKey = '';   // Google Cloud Speech-to-Text API key — optional, voice notes
 
   if (anthropicKey) props.setProperty(PROP.ANTHROPIC_KEY, anthropicKey);
   if (metaToken) props.setProperty(PROP.META_TOKEN, metaToken);
   if (youtubeToken) props.setProperty(PROP.YOUTUBE_TOKEN, youtubeToken);
   if (tiktokToken) props.setProperty(PROP.TIKTOK_TOKEN, tiktokToken);
+  if (googleSttKey) props.setProperty(PROP.GOOGLE_STT_KEY, googleSttKey);
 
   Logger.log('Anthropic: ' + !!props.getProperty(PROP.ANTHROPIC_KEY));
   Logger.log('Meta:      ' + !!props.getProperty(PROP.META_TOKEN));
   Logger.log('YouTube:   ' + !!props.getProperty(PROP.YOUTUBE_TOKEN));
   Logger.log('TikTok:    ' + !!props.getProperty(PROP.TIKTOK_TOKEN));
+  Logger.log('GoogleSTT: ' + !!props.getProperty(PROP.GOOGLE_STT_KEY));
   Logger.log('Now DELETE the pasted values above and save this file again.');
 }
 
@@ -1639,6 +1644,94 @@ function parseAiJsonArray_(raw) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// VOICE NOTES — Google Speech-to-Text, Moroccan Arabic
+// ---------------------------------------------------------------------------
+
+/**
+ * Container formats Google's synchronous recognize accepts. WhatsApp voice notes are
+ * OGG/Opus and work; Instagram sends m4a/aac, which it does NOT accept, and which
+ * therefore gets an honest error instead of a silent failure.
+ */
+function sttEncodingFor_(mimeType) {
+  const m = String(mimeType || '').toLowerCase();
+  if (m.indexOf('ogg') !== -1 || m.indexOf('opus') !== -1) return 'OGG_OPUS';
+  if (m.indexOf('webm') !== -1) return 'WEBM_OPUS';
+  if (m.indexOf('mpeg') !== -1 || m.indexOf('mp3') !== -1) return 'MP3';
+  if (m.indexOf('flac') !== -1) return 'FLAC';
+  if (m.indexOf('wav') !== -1) return 'LINEAR16';
+  if (m.indexOf('amr') !== -1) return 'AMR';
+  return '';   // m4a / aac / anything else — unsupported by sync recognize
+}
+
+/**
+ * Transcribe a voice note in Moroccan Arabic.
+ *
+ * The Claude API takes text, images and documents — there is no audio content block, so
+ * audio must become text first. Whisper was tried on this project's own videos and gave
+ * unusable Darija (it invented words, and an English name), because its Arabic training
+ * is essentially Modern Standard. Google's ar-MA locale is the one option actually
+ * trained on Moroccan speech.
+ *
+ * UNVERIFIED against real customer audio at the time of writing. That is exactly why the
+ * confidence score is returned and shown rather than the transcript being quietly fed
+ * into a reply: a wrong transcript looks like a real message, so the AI would answer
+ * confidently to a question nobody asked. Confident nonsense is worse than silence.
+ *
+ * The limits below are Google's: synchronous recognize caps around 60 seconds and 10MB.
+ * Longer audio needs longRunningRecognize plus Cloud Storage, not worth it for voice notes.
+ */
+function transcribeVoice_(base64, mimeType) {
+  const encoding = sttEncodingFor_(mimeType);
+  if (!encoding) {
+    throw new Error('هاد النوع ديال الصوت ما مدعومش (' + (mimeType || 'غير معروف') +
+      '). كيخدمو: ogg, opus, webm, mp3, wav, flac, amr.');
+  }
+  // ~1.37 bytes of base64 per byte of audio; 10MB is Google's cap for sync recognize.
+  if (base64.length > 13 * 1024 * 1024) {
+    throw new Error('التسجيل طويل بزاف. الحد هو دقيقة وحدة تقريبا.');
+  }
+
+  const config = {
+    languageCode: 'ar-MA',                        // Arabic (Morocco)
+    alternativeLanguageCodes: ['ar-EG', 'fr-FR'], // Darija borrows heavily from French
+    enableAutomaticPunctuation: true,
+    model: 'default',
+  };
+  // MP3, FLAC and WAV carry their sample rate in the header; Opus containers do not.
+  if (encoding === 'OGG_OPUS' || encoding === 'WEBM_OPUS') {
+    config.encoding = encoding;
+    config.sampleRateHertz = 16000;               // what WhatsApp records at
+  } else if (encoding !== 'MP3') {
+    config.encoding = encoding;
+  }
+
+  const res = UrlFetchApp.fetch(
+    'https://speech.googleapis.com/v1/speech:recognize?key=' +
+      encodeURIComponent(getSecret_(PROP.GOOGLE_STT_KEY)),
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ config: config, audio: { content: base64 } }),
+      muteHttpExceptions: true,
+    });
+
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Google STT ' + res.getResponseCode() + ': ' +
+      res.getContentText().slice(0, 250));
+  }
+
+  const results = (JSON.parse(res.getContentText()).results) || [];
+  let text = '', sum = 0, n = 0;
+  for (const r of results) {
+    const alt = (r.alternatives && r.alternatives[0]) || null;
+    if (!alt || !alt.transcript) continue;
+    text += (text ? ' ' : '') + alt.transcript;
+    if (typeof alt.confidence === 'number') { sum += alt.confidence; n++; }
+  }
+  return { text: text.trim(), confidence: n ? sum / n : 0 };
+}
+
 /**
  * Claude wraps its JSON in ```json fences and sometimes adds prose after it (confirmed
  * against the live API), so a plain JSON.parse fails. Strip fences, then take the first
@@ -2321,6 +2414,48 @@ function handleDashboardAction_(body) {
       return { ok: true, items: items, truncated: found.length > 12 };
     }
 
+    /**
+     * A voice note, transcribed then answered.
+     *
+     * The transcript is ALWAYS returned alongside the reply, with Google's confidence
+     * score, and anything under 70% is flagged before you send. That is deliberate:
+     * speech-to-text on Darija is the least trustworthy part of this system, and a wrong
+     * transcript reads like a real message. You get to see what it heard.
+     */
+    case 'voice': {
+      if (!hasSecret_(PROP.GOOGLE_STT_KEY)) {
+        return { ok: false, error: 'ما كاينش مفتاح Google Speech. زيدو ف setSecrets().' };
+      }
+      let heard;
+      try {
+        heard = transcribeVoice_(String(body.audio || ''), body.mime);
+      } catch (err) {
+        return { ok: false, error: String(err).replace(/^Error:\s*/, '').slice(0, 220) };
+      }
+      if (!heard.text) {
+        return { ok: true, transcript: '', reply: '',
+                 warn: 'ما فهم والو من التسجيل. سمعو نتا.' };
+      }
+
+      const msg = { id: 'voice_' + Date.now(), text: heard.text,
+                    author: String(body.author || 'زبون'),
+                    platform: String(body.platform || 'whatsapp'), kind: 'dm' };
+      const ai = generateReply_(msg);
+      const risky = mentionsUnverifiedTopic_(heard.text);
+      const shaky = heard.confidence > 0 && heard.confidence < 0.7;
+
+      return {
+        ok: true,
+        transcript: heard.text,
+        confidence: Math.round(heard.confidence * 100),
+        reply: ai.reply || '',
+        lead: ai.lead, client_type: ai.client_type,
+        warn: shaky
+          ? 'التسجيل ما تفهمش مزيان. قرا اللي فهم قبل ما تصيفط.'
+          : (risky || (ai.needs_human ? 'راجعه قبل ما تصيفطو' : '')),
+      };
+    }
+
     case 'platform': {
       const name = String(body.key || '');
       if (!(name in PLATFORMS)) return { ok: false, error: 'unknown platform' };
@@ -2510,6 +2645,9 @@ function dashboardHtml_(d) {
       'ونتا لي كتلصقو ف إنستغرام. ما كيمس حتى شي حساب.</p>' +
     '<label for="shot" class="shotbtn">📸 صيفط تصويرة ديال التعليقات وجاوب على گاع وحدة</label>' +
     '<input type="file" id="shot" accept="image/*" hidden>' +
+    '<label for="voice" class="shotbtn" style="margin-top:10px;border-color:#c4b5fd;' +
+      'background:#f5f3ff;color:#6d28d9">🎤 صيفط تسجيل صوتي</label>' +
+    '<input type="file" id="voice" accept="audio/*" hidden>' +
     '<p id="shotmsg" class="sub" style="margin:8px 0 14px;display:none"></p>' +
     '<div id="shots"></div>' +
     '<p class="sub" style="margin:16px 0 6px">ولا لصق تعليق وحد بيدك:</p>' +
@@ -2635,6 +2773,31 @@ function dashboardHtml_(d) {
 '      Array.prototype.forEach.call(shotsBox.querySelectorAll("button[data-c]"),function(b){' +
 '        b.onclick=function(){' +
 '          navigator.clipboard.writeText(document.getElementById("r"+b.dataset.c).textContent);' +
+'          b.textContent="تنسخ ✓";setTimeout(function(){b.textContent="نسخ"},1500);' +
+'        }});' +
+'    }).catch(function(e){shotMsg.textContent=String(e)});' +
+'  };' +
+'  r.readAsDataURL(f);' +
+'};' +
+'var voiceEl=document.getElementById("voice");' +
+'voiceEl.onchange=function(){' +
+'  var f=voiceEl.files[0]; if(!f)return;' +
+'  shotMsg.style.display="block";shotMsg.textContent="كيسمع التسجيل...";shotsBox.innerHTML="";' +
+'  var r=new FileReader();' +
+'  r.onload=function(){' +
+'    post({action:"voice",audio:String(r.result).split(",")[1],mime:f.type}).then(function(res){' +
+'      voiceEl.value="";' +
+'      if(!res.ok){shotMsg.textContent="مشكل: "+res.error;return}' +
+'      shotMsg.textContent=res.confidence?("فهم "+res.confidence+"%"):"";' +
+'      shotsBox.innerHTML="<div class=\"item\">"' +
+'        +"<div class=\"who\">اللي سمع:</div>"' +
+'        +"<div class=\"said\">"+esc(res.transcript||"(والو)")+"</div>"' +
+'        +(res.warn?"<div class=\"note\">⚠️ "+esc(res.warn)+"</div>":"")' +
+'        +(res.reply?"<div class=\"replybox\" id=\"r0\">"+esc(res.reply)+"</div>"' +
+'          +"<button class=\"big start\" style=\"padding:8px 18px;font-size:13px;margin-top:8px\" data-c=\"0\">نسخ</button>":"");' +
+'      Array.prototype.forEach.call(shotsBox.querySelectorAll("button[data-c]"),function(b){' +
+'        b.onclick=function(){' +
+'          navigator.clipboard.writeText(document.getElementById("r0").textContent);' +
 '          b.textContent="تنسخ ✓";setTimeout(function(){b.textContent="نسخ"},1500);' +
 '        }});' +
 '    }).catch(function(e){shotMsg.textContent=String(e)});' +

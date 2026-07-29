@@ -159,6 +159,48 @@ function handleDashboardAction_(body) {
       return { ok: true, items: items, truncated: found.length > 12 };
     }
 
+    /**
+     * A voice note, transcribed then answered.
+     *
+     * The transcript is ALWAYS returned alongside the reply, with Google's confidence
+     * score, and anything under 70% is flagged before you send. That is deliberate:
+     * speech-to-text on Darija is the least trustworthy part of this system, and a wrong
+     * transcript reads like a real message. You get to see what it heard.
+     */
+    case 'voice': {
+      if (!hasSecret_(PROP.GOOGLE_STT_KEY)) {
+        return { ok: false, error: 'ما كاينش مفتاح Google Speech. زيدو ف setSecrets().' };
+      }
+      let heard;
+      try {
+        heard = transcribeVoice_(String(body.audio || ''), body.mime);
+      } catch (err) {
+        return { ok: false, error: String(err).replace(/^Error:\s*/, '').slice(0, 220) };
+      }
+      if (!heard.text) {
+        return { ok: true, transcript: '', reply: '',
+                 warn: 'ما فهم والو من التسجيل. سمعو نتا.' };
+      }
+
+      const msg = { id: 'voice_' + Date.now(), text: heard.text,
+                    author: String(body.author || 'زبون'),
+                    platform: String(body.platform || 'whatsapp'), kind: 'dm' };
+      const ai = generateReply_(msg);
+      const risky = mentionsUnverifiedTopic_(heard.text);
+      const shaky = heard.confidence > 0 && heard.confidence < 0.7;
+
+      return {
+        ok: true,
+        transcript: heard.text,
+        confidence: Math.round(heard.confidence * 100),
+        reply: ai.reply || '',
+        lead: ai.lead, client_type: ai.client_type,
+        warn: shaky
+          ? 'التسجيل ما تفهمش مزيان. قرا اللي فهم قبل ما تصيفط.'
+          : (risky || (ai.needs_human ? 'راجعه قبل ما تصيفطو' : '')),
+      };
+    }
+
     case 'platform': {
       const name = String(body.key || '');
       if (!(name in PLATFORMS)) return { ok: false, error: 'unknown platform' };
@@ -348,6 +390,9 @@ function dashboardHtml_(d) {
       'ونتا لي كتلصقو ف إنستغرام. ما كيمس حتى شي حساب.</p>' +
     '<label for="shot" class="shotbtn">📸 صيفط تصويرة ديال التعليقات وجاوب على گاع وحدة</label>' +
     '<input type="file" id="shot" accept="image/*" hidden>' +
+    '<label for="voice" class="shotbtn" style="margin-top:10px;border-color:#c4b5fd;' +
+      'background:#f5f3ff;color:#6d28d9">🎤 صيفط تسجيل صوتي</label>' +
+    '<input type="file" id="voice" accept="audio/*" hidden>' +
     '<p id="shotmsg" class="sub" style="margin:8px 0 14px;display:none"></p>' +
     '<div id="shots"></div>' +
     '<p class="sub" style="margin:16px 0 6px">ولا لصق تعليق وحد بيدك:</p>' +
@@ -473,6 +518,31 @@ function dashboardHtml_(d) {
 '      Array.prototype.forEach.call(shotsBox.querySelectorAll("button[data-c]"),function(b){' +
 '        b.onclick=function(){' +
 '          navigator.clipboard.writeText(document.getElementById("r"+b.dataset.c).textContent);' +
+'          b.textContent="تنسخ ✓";setTimeout(function(){b.textContent="نسخ"},1500);' +
+'        }});' +
+'    }).catch(function(e){shotMsg.textContent=String(e)});' +
+'  };' +
+'  r.readAsDataURL(f);' +
+'};' +
+'var voiceEl=document.getElementById("voice");' +
+'voiceEl.onchange=function(){' +
+'  var f=voiceEl.files[0]; if(!f)return;' +
+'  shotMsg.style.display="block";shotMsg.textContent="كيسمع التسجيل...";shotsBox.innerHTML="";' +
+'  var r=new FileReader();' +
+'  r.onload=function(){' +
+'    post({action:"voice",audio:String(r.result).split(",")[1],mime:f.type}).then(function(res){' +
+'      voiceEl.value="";' +
+'      if(!res.ok){shotMsg.textContent="مشكل: "+res.error;return}' +
+'      shotMsg.textContent=res.confidence?("فهم "+res.confidence+"%"):"";' +
+'      shotsBox.innerHTML="<div class=\"item\">"' +
+'        +"<div class=\"who\">اللي سمع:</div>"' +
+'        +"<div class=\"said\">"+esc(res.transcript||"(والو)")+"</div>"' +
+'        +(res.warn?"<div class=\"note\">⚠️ "+esc(res.warn)+"</div>":"")' +
+'        +(res.reply?"<div class=\"replybox\" id=\"r0\">"+esc(res.reply)+"</div>"' +
+'          +"<button class=\"big start\" style=\"padding:8px 18px;font-size:13px;margin-top:8px\" data-c=\"0\">نسخ</button>":"");' +
+'      Array.prototype.forEach.call(shotsBox.querySelectorAll("button[data-c]"),function(b){' +
+'        b.onclick=function(){' +
+'          navigator.clipboard.writeText(document.getElementById("r0").textContent);' +
 '          b.textContent="تنسخ ✓";setTimeout(function(){b.textContent="نسخ"},1500);' +
 '        }});' +
 '    }).catch(function(e){shotMsg.textContent=String(e)});' +

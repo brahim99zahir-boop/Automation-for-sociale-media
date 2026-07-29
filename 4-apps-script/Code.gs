@@ -432,6 +432,94 @@ function parseAiJsonArray_(raw) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// VOICE NOTES — Google Speech-to-Text, Moroccan Arabic
+// ---------------------------------------------------------------------------
+
+/**
+ * Container formats Google's synchronous recognize accepts. WhatsApp voice notes are
+ * OGG/Opus and work; Instagram sends m4a/aac, which it does NOT accept, and which
+ * therefore gets an honest error instead of a silent failure.
+ */
+function sttEncodingFor_(mimeType) {
+  const m = String(mimeType || '').toLowerCase();
+  if (m.indexOf('ogg') !== -1 || m.indexOf('opus') !== -1) return 'OGG_OPUS';
+  if (m.indexOf('webm') !== -1) return 'WEBM_OPUS';
+  if (m.indexOf('mpeg') !== -1 || m.indexOf('mp3') !== -1) return 'MP3';
+  if (m.indexOf('flac') !== -1) return 'FLAC';
+  if (m.indexOf('wav') !== -1) return 'LINEAR16';
+  if (m.indexOf('amr') !== -1) return 'AMR';
+  return '';   // m4a / aac / anything else — unsupported by sync recognize
+}
+
+/**
+ * Transcribe a voice note in Moroccan Arabic.
+ *
+ * The Claude API takes text, images and documents — there is no audio content block, so
+ * audio must become text first. Whisper was tried on this project's own videos and gave
+ * unusable Darija (it invented words, and an English name), because its Arabic training
+ * is essentially Modern Standard. Google's ar-MA locale is the one option actually
+ * trained on Moroccan speech.
+ *
+ * UNVERIFIED against real customer audio at the time of writing. That is exactly why the
+ * confidence score is returned and shown rather than the transcript being quietly fed
+ * into a reply: a wrong transcript looks like a real message, so the AI would answer
+ * confidently to a question nobody asked. Confident nonsense is worse than silence.
+ *
+ * The limits below are Google's: synchronous recognize caps around 60 seconds and 10MB.
+ * Longer audio needs longRunningRecognize plus Cloud Storage, not worth it for voice notes.
+ */
+function transcribeVoice_(base64, mimeType) {
+  const encoding = sttEncodingFor_(mimeType);
+  if (!encoding) {
+    throw new Error('هاد النوع ديال الصوت ما مدعومش (' + (mimeType || 'غير معروف') +
+      '). كيخدمو: ogg, opus, webm, mp3, wav, flac, amr.');
+  }
+  // ~1.37 bytes of base64 per byte of audio; 10MB is Google's cap for sync recognize.
+  if (base64.length > 13 * 1024 * 1024) {
+    throw new Error('التسجيل طويل بزاف. الحد هو دقيقة وحدة تقريبا.');
+  }
+
+  const config = {
+    languageCode: 'ar-MA',                        // Arabic (Morocco)
+    alternativeLanguageCodes: ['ar-EG', 'fr-FR'], // Darija borrows heavily from French
+    enableAutomaticPunctuation: true,
+    model: 'default',
+  };
+  // MP3, FLAC and WAV carry their sample rate in the header; Opus containers do not.
+  if (encoding === 'OGG_OPUS' || encoding === 'WEBM_OPUS') {
+    config.encoding = encoding;
+    config.sampleRateHertz = 16000;               // what WhatsApp records at
+  } else if (encoding !== 'MP3') {
+    config.encoding = encoding;
+  }
+
+  const res = UrlFetchApp.fetch(
+    'https://speech.googleapis.com/v1/speech:recognize?key=' +
+      encodeURIComponent(getSecret_(PROP.GOOGLE_STT_KEY)),
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ config: config, audio: { content: base64 } }),
+      muteHttpExceptions: true,
+    });
+
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Google STT ' + res.getResponseCode() + ': ' +
+      res.getContentText().slice(0, 250));
+  }
+
+  const results = (JSON.parse(res.getContentText()).results) || [];
+  let text = '', sum = 0, n = 0;
+  for (const r of results) {
+    const alt = (r.alternatives && r.alternatives[0]) || null;
+    if (!alt || !alt.transcript) continue;
+    text += (text ? ' ' : '') + alt.transcript;
+    if (typeof alt.confidence === 'number') { sum += alt.confidence; n++; }
+  }
+  return { text: text.trim(), confidence: n ? sum / n : 0 };
+}
+
 /**
  * Claude wraps its JSON in ```json fences and sometimes adds prose after it (confirmed
  * against the live API), so a plain JSON.parse fails. Strip fences, then take the first
