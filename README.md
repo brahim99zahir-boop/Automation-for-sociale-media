@@ -12,7 +12,7 @@ running whether or not your computer is on.
 | | |
 |---|---|
 | **[`4-apps-script/SETUP.md`](./4-apps-script/SETUP.md)** | Deploy it. Start here. |
-| [`PROMPT.md`](./PROMPT.md) | Paste into a fresh Claude Code session to continue work |
+| [`CLAUDE.md`](./CLAUDE.md) | Standing rules — Claude Code loads these automatically |
 | [`1-voice-profile/reply-playbook.md`](./1-voice-profile/reply-playbook.md) | How it writes |
 | [`3-workflows/facts-for-ai.md`](./3-workflows/facts-for-ai.md) | The only facts it may state |
 | [`skills/darija/`](./skills/darija/) | Portable Darija writing skill |
