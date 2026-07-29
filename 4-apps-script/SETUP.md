@@ -110,9 +110,16 @@ which is what Meta and anyone else who finds the URL will see.
 
 ## Using it without any platform connected
 
-If Meta access isn't available to you, the dashboard has a **جاوب بلا ما تربط شي منصة**
-box. Paste a customer's comment, get the reply in your Darija, copy it, paste it into
-Instagram yourself.
+If Meta access isn't available to you, the dashboard answers your comments anyway.
+
+**Screenshot mode — the fast one.** Open your comments on your phone, screenshot them, and
+tap **صيفط تصويرة ديال التعليقات**. The model reads the image, pulls out every comment, and
+writes a reply for each one. You copy them across. Twelve comments per screenshot, one tap.
+
+Instagram is never contacted, so there is nothing to authorise and nothing to be banned
+for. Your own comments are filtered out in code, not just asked of the model.
+
+**Or paste one comment** into the box below it, if that is all you need.
 
 It is not 24/7 and you still do the pasting, but it needs no Meta app, no API and no
 approval, and it carries **no ban risk** because nothing touches your account. Everything

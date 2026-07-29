@@ -1555,6 +1555,91 @@ function callClaudeWithRetry_(userContent) {
 }
 
 /**
+ * Read the comments out of a screenshot.
+ *
+ * This is the point of the no-API path: instead of retyping what a customer wrote, you
+ * screenshot the comments on your phone and the model reads them. Instagram is never
+ * contacted, so there is nothing to authorise and nothing to get banned for.
+ *
+ * Deliberately does ONE job — extraction. The replies still go through generateReply_,
+ * so script detection, the corrective retry, the unverified-topic guard and cost metering
+ * behave identically to the automatic path. One pipeline, two ways in.
+ */
+function extractCommentsFromImage_(base64, mimeType) {
+  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': getSecret_(PROP.ANTHROPIC_KEY),
+      'anthropic-version': CONFIG.ANTHROPIC_VERSION,
+    },
+    payload: JSON.stringify({
+      model: CONFIG.CLAUDE_MODEL,
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image',
+            source: { type: 'base64', media_type: mimeType || 'image/jpeg', data: base64 } },
+          { type: 'text', text:
+            'This is a screenshot of comments or messages on a social media post ' +
+            '(Instagram, Facebook, TikTok or YouTube), most likely in Moroccan Darija.\n\n' +
+            'Extract every comment written by someone OTHER than the page owner ' +
+            '(the owner appears as "fiha khir", "fiha_khir13" or "fihakhir04" — skip those).\n\n' +
+            'Copy each comment EXACTLY as written. Do not translate, do not fix spelling, ' +
+            'do not convert between Arabic and Latin letters. The exact script decides ' +
+            'which script the reply is written in, so changing it breaks the reply.\n\n' +
+            'Return ONLY a JSON array, nothing else:\n' +
+            '[{"author":"username","text":"the comment exactly as written"}]\n\n' +
+            'Return [] if there are no readable comments.' },
+        ],
+      }],
+    }),
+    muteHttpExceptions: true,
+  });
+
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Vision API ' + res.getResponseCode() + ': ' +
+      res.getContentText().slice(0, 300));
+  }
+  const body = JSON.parse(res.getContentText());
+  recordUsage_(body.usage);           // images are billed too, so count them
+
+  return parseAiJsonArray_(body.content[0].text);
+}
+
+/**
+ * Your own handles. The extraction prompt asks the model to skip your comments, but
+ * prompt-only rules have failed in this project before (script matching held 5 times in
+ * 9), so the same rule is enforced here in code. Replying to yourself in public is the
+ * kind of mistake customers screenshot.
+ */
+const OWNER_HANDLES = ['fiha_khir13', 'fihakhir04', 'fihakhir', 'fiha khir', 'فيها خير'];
+
+function isOwnComment_(author) {
+  const a = String(author || '').toLowerCase().replace(/^@/, '').trim();
+  return OWNER_HANDLES.some(h => a === h.toLowerCase() || a.indexOf(h.toLowerCase()) !== -1);
+}
+
+/** Same fence tolerance as parseAiJson_, but for a top-level array. Fails to []. */
+function parseAiJsonArray_(raw) {
+  const s = String(raw).replace(/```(?:json)?/gi, '').trim();
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start === -1 || end <= start) return [];
+  try {
+    const arr = JSON.parse(s.slice(start, end + 1));
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(c => c && typeof c.text === 'string' && c.text.trim())
+      .filter(c => !isOwnComment_(c.author))
+      .map(c => ({ author: String(c.author || 'زبون').slice(0, 60), text: c.text.trim() }));
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
  * Claude wraps its JSON in ```json fences and sometimes adds prose after it (confirmed
  * against the live API), so a plain JSON.parse fails. Strip fences, then take the first
  * balanced {...} block. Anything unparseable fails SAFE: held for a human, never sent.
@@ -2202,6 +2287,40 @@ function handleDashboardAction_(body) {
       };
     }
 
+    // Screenshot in, every reply out. The only automation available with no platform
+    // access at all: the model reads the image, the normal pipeline writes the replies.
+    case 'shot': {
+      let found;
+      try {
+        found = extractCommentsFromImage_(String(body.image || ''), body.mime);
+      } catch (err) {
+        return { ok: false, error: String(err).slice(0, 200) };
+      }
+      if (!found.length) return { ok: true, items: [], note: 'ما قدرناش نقراو شي تعليق' };
+
+      // Cap the batch: each comment is its own Claude call and Apps Script kills an
+      // execution at 6 minutes. Better to answer 12 well than to time out on 40.
+      const items = found.slice(0, 12).map(c => {
+        const msg = { id: 'shot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+                      text: c.text, author: c.author,
+                      platform: String(body.platform || 'instagram'), kind: 'comment' };
+        try {
+          const ai = generateReply_(msg);
+          const risky = mentionsUnverifiedTopic_(c.text);
+          return {
+            author: c.author, comment: c.text, reply: ai.reply || '',
+            lead: ai.lead, client_type: ai.client_type,
+            warn: risky || (ai.needs_human ? 'راجعه قبل ما تصيفطو' : ''),
+          };
+        } catch (err) {
+          // One bad comment must not cost the whole screenshot.
+          return { author: c.author, comment: c.text, reply: '',
+                   warn: 'ما تقدرش يتجاوب: ' + String(err).slice(0, 80) };
+        }
+      });
+      return { ok: true, items: items, truncated: found.length > 12 };
+    }
+
     case 'platform': {
       const name = String(body.key || '');
       if (!(name in PLATFORMS)) return { ok: false, error: 'unknown platform' };
@@ -2316,6 +2435,12 @@ function dashboardHtml_(d) {
 '   border:1px solid #d1d5db;background:#fff;color:inherit;direction:rtl;resize:vertical}' +
 ' .qrow{display:flex;gap:10px;align-items:center;margin-top:10px}' +
 ' .qrow select{width:auto;flex:0 0 auto}' +
+' .shotbtn{display:block;text-align:center;padding:18px;border:2px dashed #93c5fd;' +
+'   border-radius:12px;background:#eff6ff;color:#1d4ed8;font-weight:700;cursor:pointer}' +
+' .shotbtn:active{opacity:.7}' +
+' .item{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:10px}' +
+' .item .who{font-weight:700;font-size:13px}' +
+' .item .said{color:#6b7280;font-size:13px;margin:4px 0 8px}' +
 ' .replybox{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:14px;' +
 '   font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word}' +
 ' .note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;' +
@@ -2329,6 +2454,8 @@ function dashboardHtml_(d) {
 '  input[type=checkbox]{background:#374151}' +
 '  textarea,select{background:#0b0f19;border-color:#374151}' +
 '  .replybox{background:#052e21;border-color:#065f46}' +
+'  .shotbtn{background:#0b1a33;border-color:#1e40af;color:#93c5fd}' +
+'  .item{border-color:#1f2937}' +
 '  .lead-cold{background:#1f2937;color:#9ca3af}' +
 ' }' +
 '</style>' +
@@ -2381,6 +2508,11 @@ function dashboardHtml_(d) {
     '<h1 style="font-size:16px">جاوب بلا ما تربط شي منصة</h1>' +
     '<p class="sub">لصق التعليق ديال الزبون هنا. غادي يعطيك الرد بالدارجة ديالك، ' +
       'ونتا لي كتلصقو ف إنستغرام. ما كيمس حتى شي حساب.</p>' +
+    '<label for="shot" class="shotbtn">📸 صيفط تصويرة ديال التعليقات وجاوب على گاع وحدة</label>' +
+    '<input type="file" id="shot" accept="image/*" hidden>' +
+    '<p id="shotmsg" class="sub" style="margin:8px 0 14px;display:none"></p>' +
+    '<div id="shots"></div>' +
+    '<p class="sub" style="margin:16px 0 6px">ولا لصق تعليق وحد بيدك:</p>' +
     '<textarea id="q" rows="3" placeholder="مثلا: chhal taman dyal lmzdouj?"></textarea>' +
     '<div class="qrow">' +
       '<select id="qkind"><option value="comment">تعليق</option>' +
@@ -2477,6 +2609,37 @@ function dashboardHtml_(d) {
 '      res.running?"الأوتوماسيون خدام":"الأوتوماسيون واقف";' +
 '    power.disabled=false;' +
 '  }).catch(function(e){alert(e);power.disabled=false});' +
+'};' +
+'var shotEl=document.getElementById("shot"),shotMsg=document.getElementById("shotmsg"),' +
+'    shotsBox=document.getElementById("shots");' +
+'function esc(t){var d=document.createElement("div");d.textContent=t||"";return d.innerHTML}' +
+'shotEl.onchange=function(){' +
+'  var f=shotEl.files[0]; if(!f)return;' +
+'  shotMsg.style.display="block";shotMsg.textContent="كيقرا التصويرة...";shotsBox.innerHTML="";' +
+'  var r=new FileReader();' +
+'  r.onload=function(){' +
+'    var b64=String(r.result).split(",")[1];' +
+'    post({action:"shot",image:b64,mime:f.type}).then(function(res){' +
+'      shotEl.value="";' +
+'      if(!res.ok){shotMsg.textContent="مشكل: "+res.error;return}' +
+'      if(!res.items.length){shotMsg.textContent=res.note||"ما كاين حتى تعليق";return}' +
+'      shotMsg.textContent=res.items.length+" تعليق"+(res.truncated?" (وليّنا على 12)":"");' +
+'      shotsBox.innerHTML=res.items.map(function(it,i){' +
+'        return "<div class=\"item\">"' +
+'          +"<div class=\"who\">@"+esc(it.author)+(it.lead?" · "+esc(it.lead):"")+"</div>"' +
+'          +"<div class=\"said\">"+esc(it.comment)+"</div>"' +
+'          +(it.warn?"<div class=\"note\">⚠️ "+esc(it.warn)+"</div>":"")' +
+'          +"<div class=\"replybox\" id=\"r"+i+"\">"+esc(it.reply||"(ماشي سؤال)")+"</div>"' +
+'          +"<button class=\"big start\" style=\"padding:8px 18px;font-size:13px;margin-top:8px\" data-c=\""+i+"\">نسخ</button>"' +
+'          +"</div>"}).join("");' +
+'      Array.prototype.forEach.call(shotsBox.querySelectorAll("button[data-c]"),function(b){' +
+'        b.onclick=function(){' +
+'          navigator.clipboard.writeText(document.getElementById("r"+b.dataset.c).textContent);' +
+'          b.textContent="تنسخ ✓";setTimeout(function(){b.textContent="نسخ"},1500);' +
+'        }});' +
+'    }).catch(function(e){shotMsg.textContent=String(e)});' +
+'  };' +
+'  r.readAsDataURL(f);' +
 '};' +
 'var go=document.getElementById("go"),ansBox=document.getElementById("ans");' +
 'go.onclick=function(){' +

@@ -348,6 +348,91 @@ function callClaudeWithRetry_(userContent) {
 }
 
 /**
+ * Read the comments out of a screenshot.
+ *
+ * This is the point of the no-API path: instead of retyping what a customer wrote, you
+ * screenshot the comments on your phone and the model reads them. Instagram is never
+ * contacted, so there is nothing to authorise and nothing to get banned for.
+ *
+ * Deliberately does ONE job — extraction. The replies still go through generateReply_,
+ * so script detection, the corrective retry, the unverified-topic guard and cost metering
+ * behave identically to the automatic path. One pipeline, two ways in.
+ */
+function extractCommentsFromImage_(base64, mimeType) {
+  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': getSecret_(PROP.ANTHROPIC_KEY),
+      'anthropic-version': CONFIG.ANTHROPIC_VERSION,
+    },
+    payload: JSON.stringify({
+      model: CONFIG.CLAUDE_MODEL,
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image',
+            source: { type: 'base64', media_type: mimeType || 'image/jpeg', data: base64 } },
+          { type: 'text', text:
+            'This is a screenshot of comments or messages on a social media post ' +
+            '(Instagram, Facebook, TikTok or YouTube), most likely in Moroccan Darija.\n\n' +
+            'Extract every comment written by someone OTHER than the page owner ' +
+            '(the owner appears as "fiha khir", "fiha_khir13" or "fihakhir04" — skip those).\n\n' +
+            'Copy each comment EXACTLY as written. Do not translate, do not fix spelling, ' +
+            'do not convert between Arabic and Latin letters. The exact script decides ' +
+            'which script the reply is written in, so changing it breaks the reply.\n\n' +
+            'Return ONLY a JSON array, nothing else:\n' +
+            '[{"author":"username","text":"the comment exactly as written"}]\n\n' +
+            'Return [] if there are no readable comments.' },
+        ],
+      }],
+    }),
+    muteHttpExceptions: true,
+  });
+
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Vision API ' + res.getResponseCode() + ': ' +
+      res.getContentText().slice(0, 300));
+  }
+  const body = JSON.parse(res.getContentText());
+  recordUsage_(body.usage);           // images are billed too, so count them
+
+  return parseAiJsonArray_(body.content[0].text);
+}
+
+/**
+ * Your own handles. The extraction prompt asks the model to skip your comments, but
+ * prompt-only rules have failed in this project before (script matching held 5 times in
+ * 9), so the same rule is enforced here in code. Replying to yourself in public is the
+ * kind of mistake customers screenshot.
+ */
+const OWNER_HANDLES = ['fiha_khir13', 'fihakhir04', 'fihakhir', 'fiha khir', 'فيها خير'];
+
+function isOwnComment_(author) {
+  const a = String(author || '').toLowerCase().replace(/^@/, '').trim();
+  return OWNER_HANDLES.some(h => a === h.toLowerCase() || a.indexOf(h.toLowerCase()) !== -1);
+}
+
+/** Same fence tolerance as parseAiJson_, but for a top-level array. Fails to []. */
+function parseAiJsonArray_(raw) {
+  const s = String(raw).replace(/```(?:json)?/gi, '').trim();
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start === -1 || end <= start) return [];
+  try {
+    const arr = JSON.parse(s.slice(start, end + 1));
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(c => c && typeof c.text === 'string' && c.text.trim())
+      .filter(c => !isOwnComment_(c.author))
+      .map(c => ({ author: String(c.author || 'زبون').slice(0, 60), text: c.text.trim() }));
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
  * Claude wraps its JSON in ```json fences and sometimes adds prose after it (confirmed
  * against the live API), so a plain JSON.parse fails. Strip fences, then take the first
  * balanced {...} block. Anything unparseable fails SAFE: held for a human, never sent.

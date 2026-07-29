@@ -183,6 +183,59 @@ ok('manual drafts are metered too', usageForDay_(day).calls > cu.calls);
 delete H.props['ANTHROPIC_API_KEY'];
 global.__ROUTES = {};
 
+console.log('\n== screenshot -> replies (no platform API) ==');
+H.props['ANTHROPIC_API_KEY'] = 'test';
+let visionCalls = 0;
+const VISION = { body: { content: [{ text: '```json\\n[' +
+  '{"author":"amina","text":"chhal taman?"},' +
+  '{"author":"youssef","text":"واش كتوصلو لكازا؟"},' +
+  '{"author":"fiha_khir13","text":"my own comment"}' +
+  ']\\n```' }], usage: { input_tokens: 900, output_tokens: 60 } } };
+const REPLY = { body: { content: [{ text: '{"reply":"550 dh l metre. sift l9ias f whatsapp 0666567672",' +
+  '"needs_human":false,"client_type":"سؤال عن الثمن","lead":"ساخن"}' }],
+  usage: { input_tokens: 20, output_tokens: 40 } } };
+
+// First anthropic hit is the vision call, the rest are replies.
+global.__ROUTES = { 'api.anthropic.com': VISION };
+const origFetch = UrlFetchApp.fetch;
+UrlFetchApp.fetch = function (url, opts) {
+  if (String(url).indexOf('anthropic') !== -1) {
+    visionCalls++;
+    const body = visionCalls === 1 ? VISION.body : REPLY.body;
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify(body) };
+  }
+  return origFetch(url, opts);
+};
+
+const shot = post({ dash: tok, action: 'shot', image: 'ZmFrZQ==', mime: 'image/jpeg' });
+ok('screenshot returns replies', shot.ok === true && shot.items.length === 2,
+   JSON.stringify(shot).slice(0, 120));
+ok('own comments are skipped', !shot.items.some(i => i.author === 'fiha_khir13'));
+ok('each item keeps its own comment',
+   shot.items[0].comment === 'chhal taman?' && shot.items[1].comment.indexOf('كازا') !== -1);
+ok('each gets a reply', shot.items.every(i => i.reply.length > 0));
+ok('leads are scored', shot.items[0].lead === 'ساخن');
+ok('vision call is metered', usageForDay_(day).calls >= visionCalls);
+ok('screenshot needs the token',
+   post({ dash: 'bad', action: 'shot', image: 'x' }).ok === false);
+
+// Fenced array, prose around it, junk — all must fail safe rather than throw.
+ok('parses a fenced array', parseAiJsonArray_('```json\\n[{"author":"a","text":"hi"}]\\n```').length === 1);
+ok('ignores prose around it', parseAiJsonArray_('Here you go: [{"author":"a","text":"hi"}] done').length === 1);
+ok('empty text entries dropped', parseAiJsonArray_('[{"author":"a","text":"  "}]').length === 0);
+ok('garbage returns empty, not a throw', parseAiJsonArray_('not json at all').length === 0);
+ok('non-array returns empty', parseAiJsonArray_('{"author":"a"}').length === 0);
+ok('missing author defaults', parseAiJsonArray_('[{"text":"hi"}]')[0].author === 'زبون');
+// Enforced in code, not just asked of the model.
+ok('own handle filtered', parseAiJsonArray_('[{"author":"fiha_khir13","text":"x"}]').length === 0);
+ok('own handle with @ filtered', parseAiJsonArray_('[{"author":"@fihakhir04","text":"x"}]').length === 0);
+ok('arabic name filtered', parseAiJsonArray_('[{"author":"فيها خير","text":"x"}]').length === 0);
+ok('a real customer is kept', parseAiJsonArray_('[{"author":"amina_agadir","text":"x"}]').length === 1);
+
+UrlFetchApp.fetch = origFetch;
+delete H.props['ANTHROPIC_API_KEY'];
+global.__ROUTES = {};
+
 console.log('\n== whatsapp click tracking ==');
 const before = clicksForDay_(day);
 const hop = doGet({ parameter: { w: '1', s: 'manual', u: 'zbon1' } }).getContent();
