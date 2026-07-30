@@ -31,14 +31,23 @@ none of his 708 posts was worth more than any feature. Do that again.
 
 ## Keeping token cost down
 
-- **Don't re-read files already in context.** Check first.
-- **Grep for the specific thing** instead of reading a whole file to find one function.
-- **Use `graphify`** for "where is X / what calls Y / how does this connect" — it queries a
-  code graph instead of reading files. `graphify` and `graphify-mcp` are installed.
-- **Don't paste file contents into the reply.** Reference `path:line`.
-- **Don't spawn subagents** unless asked. Each starts cold and re-derives context.
-- **Don't bulk-install plugins.** ~480 skills are installed; more makes the right one less
-  likely to fire.
+Ranked by what actually saves most here:
+
+1. **Don't re-read files already in context.** Check first. Biggest win by far.
+2. **Grep for the specific thing** instead of reading a whole file to find one function.
+3. **Don't paste file contents into the reply.** Reference `path:line`.
+4. **Don't spawn subagents** unless asked. Each starts cold and re-derives context.
+5. **Don't bulk-install plugins.** ~480 skills are installed; more makes the right one less
+   likely to fire.
+
+**On `graphify`** (installed, with `graphify-mcp`): it answers "where is X / what calls Y /
+how does this connect" by querying a code graph instead of reading files. Real saving on a
+large codebase.
+
+**This is not a large codebase.** `4-apps-script/` is six `.gs` files sharing one global
+scope. Indexing them and querying a graph costs more than a single `grep`. So: **grep here;
+graphify when a question genuinely spans many files.** Reaching for the heavier tool on a
+small repo is the opposite of lazy, and the owner asked for low cost.
 
 ## Skills worth reaching for
 
