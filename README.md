@@ -14,6 +14,7 @@ running whether or not your computer is on.
 | **[`4-apps-script/SETUP.md`](./4-apps-script/SETUP.md)** | Deploy it. Start here. |
 | [`CLAUDE.md`](./CLAUDE.md) | Standing rules — Claude Code loads these automatically |
 | [`LOCAL-SETUP.md`](./LOCAL-SETUP.md) | Run Claude Code on your own PC, with your own browser |
+| [`META-SETUP.md`](./META-SETUP.md) | Getting the Instagram token — the route that worked, and the traps |
 | [`1-voice-profile/reply-playbook.md`](./1-voice-profile/reply-playbook.md) | How it writes |
 | [`3-workflows/facts-for-ai.md`](./3-workflows/facts-for-ai.md) | The only facts it may state |
 | [`skills/darija/`](./skills/darija/) | Portable Darija writing skill |

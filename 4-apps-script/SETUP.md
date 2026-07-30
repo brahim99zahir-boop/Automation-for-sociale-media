@@ -160,8 +160,10 @@ paperwork does.
 
 ## Step 7 — Connect Instagram (the last piece)
 
-This needs a Meta developer app — tell me when you're at this step and I'll walk you through
-each screen. You'll end with two values:
+**Full instructions: [`../META-SETUP.md`](../META-SETUP.md)** — the exact route that worked,
+including the Android link-hijacking trap and the two incompatible Meta API routes.
+
+You'll end with two values:
 
 - an **Instagram User ID** → paste into `IG_USER_ID` in `Config.gs`
 - a **long-lived Page access token** → paste into `metaToken` in `setSecrets()`, Run, then
