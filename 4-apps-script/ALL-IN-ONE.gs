@@ -80,7 +80,7 @@ const PLATFORMS = {
     enabled: false,
     comments: true,
     dm: true,
-    igUserId: '',          // your Instagram professional account id
+    igUserId: '17841450239613283',   // fiha_khir13, from the app dashboard
   },
   facebook: {
     enabled: false,
@@ -884,6 +884,22 @@ function dashboardTokenValid_(supplied) {
 
 const GRAPH = 'https://graph.facebook.com/v21.0/';
 
+/**
+ * Instagram's own host, used by the "API setup with Instagram login" route.
+ *
+ * Meta offers two ways to reach Instagram and they are NOT interchangeable:
+ *
+ *   Facebook login  -> graph.facebook.com, permissions named instagram_manage_comments,
+ *                      addressed by the numeric IG user id
+ *   Instagram login -> graph.instagram.com, permissions named
+ *                      instagram_business_manage_comments, addressed as "me"
+ *
+ * This account was set up through the Instagram login route — confirmed by the
+ * instagram_business_* permission names in the app dashboard — so the Instagram adapter
+ * targets this host. Facebook, YouTube and TikTok are unaffected.
+ */
+const IG_GRAPH = 'https://graph.instagram.com/v21.0/';
+
 // ===========================================================================
 // Shared HTTP helpers
 // ===========================================================================
@@ -961,10 +977,12 @@ const Instagram = {
     const token = getSecret_(PROP.META_TOKEN);
     const out = [];
 
-    const media = httpGetJson_(GRAPH + cfg.igUserId + '/media?fields=id&limit=' +
+    // "me" resolves to the account the token was issued for. The numeric igUserId is
+    // still kept in Config for reference and for the private-reply call below.
+    const media = httpGetJson_(IG_GRAPH + 'me/media?fields=id&limit=' +
       CONFIG.MEDIA_TO_SCAN + '&access_token=' + encodeURIComponent(token)).data || [];
 
-    const bodies = httpGetAllJson_(media.map(m => GRAPH + m.id +
+    const bodies = httpGetAllJson_(media.map(m => IG_GRAPH + m.id +
       '/comments?fields=id,text,username&limit=25&access_token=' +
       encodeURIComponent(token)));
 
@@ -988,8 +1006,8 @@ const Instagram = {
     const out = [];
 
     // Instagram DM threads live on the linked Page's conversations edge.
-    const url = GRAPH + cfg.igUserId +
-      '/conversations?platform=instagram&fields=participants,messages.limit(1)' +
+    const url = IG_GRAPH +
+      'me/conversations?platform=instagram&fields=participants,messages.limit(1)' +
       '{id,message,from,created_time}&limit=20&access_token=' + encodeURIComponent(token);
 
     const threads = httpGetJson_(url).data || [];
@@ -1009,12 +1027,12 @@ const Instagram = {
   },
 
   postReply(commentId, text) {
-    return httpPost_(GRAPH + commentId + '/replies',
+    return httpPost_(IG_GRAPH + commentId + '/replies',
       { message: text, access_token: getSecret_(PROP.META_TOKEN) });
   },
 
   sendDM(recipientId, text) {
-    return httpPost_(GRAPH + PLATFORMS.instagram.igUserId + '/messages', {
+    return httpPost_(IG_GRAPH + 'me/messages', {
       recipient: JSON.stringify({ id: recipientId }),
       message: JSON.stringify({ text: text }),
       access_token: getSecret_(PROP.META_TOKEN),
@@ -1023,7 +1041,7 @@ const Instagram = {
 
   /** Instagram allows ONE private message in response to a comment. Highest-converting move. */
   privateReplyToComment(commentId, text) {
-    return httpPost_(GRAPH + PLATFORMS.instagram.igUserId + '/messages', {
+    return httpPost_(IG_GRAPH + 'me/messages', {
       recipient: JSON.stringify({ comment_id: commentId }),
       message: JSON.stringify({ text: text }),
       access_token: getSecret_(PROP.META_TOKEN),

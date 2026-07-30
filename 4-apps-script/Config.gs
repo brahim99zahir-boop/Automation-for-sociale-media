@@ -66,7 +66,7 @@ const PLATFORMS = {
     enabled: false,
     comments: true,
     dm: true,
-    igUserId: '',          // your Instagram professional account id
+    igUserId: '17841450239613283',   // fiha_khir13, from the app dashboard
   },
   facebook: {
     enabled: false,

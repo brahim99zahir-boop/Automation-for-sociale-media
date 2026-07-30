@@ -89,7 +89,8 @@ console.log('\n== parallel fetching ==');
 PLATFORMS.instagram.igUserId = 'IG123';
 H.props['META_ACCESS_TOKEN'] = 'tok';
 global.__ROUTES = {
-  '/IG123/media':  { body: { data: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }] } },
+  // Instagram-login route addresses the account as "me", not by numeric id.
+  'graph.instagram.com/v21.0/me/media': { body: { data: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }] } },
   '/p1/comments':  { body: { data: [{ id: 'c1', text: 'bch7al?', username: 'a' }] } },
   '/p2/comments':  { code: 500, body: 'boom' },            // one post fails
   '/p3/comments':  { body: { data: [{ id: 'c3', text: 'chhal?', username: 'c' }] } },
@@ -97,6 +98,9 @@ global.__ROUTES = {
 global.__CALLS = []; global.__BATCHES = 0;
 const got = Instagram.fetchComments();
 ok('one batched call, not one per post', global.__BATCHES === 1, global.__BATCHES);
+ok('uses the instagram host, not the facebook one',
+   global.__CALLS.every(u => u.indexOf('graph.instagram.com') !== -1),
+   (global.__CALLS[0] || '').slice(0, 60));
 ok('a failing post does not lose the others', got.length === 2, got.length);
 ok('comments keep their own postId',
    got[0].postId === 'p1' && got[1].postId === 'p3',
