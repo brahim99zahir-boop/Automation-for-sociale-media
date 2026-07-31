@@ -519,6 +519,19 @@ ok('status names the automation state', __ALERTS[__ALERTS.length - 1][1].indexOf
 ok('status shows the review progress',
    __ALERTS[__ALERTS.length - 1][1].indexOf('مسودات قريتيهم') !== -1);
 
+console.log('\n== whatsapp link with no deployment ==');
+// Undeployed, ScriptApp.getService().getUrl() is null. A customer must never receive
+// a link reading "null?w=1&s=...".
+const realGetUrl = ScriptApp.getService;
+ScriptApp.getService = () => ({ getUrl: () => null });
+const bare = trackedWhatsappLink_('zbon', 'ig-private-reply');
+ok('falls back to a real wa.me link', bare.indexOf('https://wa.me/') === 0, bare);
+ok('never emits the string null', bare.indexOf('null') === -1, bare);
+ok('carries the business number', bare.indexOf(CONFIG.WHATSAPP_INTL) !== -1);
+ScriptApp.getService = realGetUrl;
+ok('tracked link used when deployed',
+   trackedWhatsappLink_('zbon', 'x').indexOf('?w=1') !== -1);
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

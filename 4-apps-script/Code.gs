@@ -818,7 +818,12 @@ function whatsappLink_(username) {
  * Only links we hand out ourselves are countable, so only those get wrapped.
  */
 function trackedWhatsappLink_(username, source) {
-  return ScriptApp.getService().getUrl() +
+  // No deployment means getUrl() is null, and the customer would be sent a link reading
+  // "null?w=1&s=...". Counting the click is worth less than the click, so when there is
+  // nowhere to count it, send them straight to WhatsApp.
+  const base = ScriptApp.getService().getUrl();
+  if (!base) return whatsappLink_(username);
+  return base +
     '?w=1&s=' + encodeURIComponent(source || 'unknown') +
     (username ? '&u=' + encodeURIComponent(username) : '');
 }
