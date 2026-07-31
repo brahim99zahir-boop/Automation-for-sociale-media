@@ -310,6 +310,57 @@ const d2 = doGet({ parameter: { dash: tok } }).getContent();
 ok('customer HTML is escaped', d2.indexOf('<img src=x') === -1 && d2.indexOf('&lt;img') !== -1);
 ok('no injected script tag', d2.indexOf('<script>bad()') === -1);
 
+console.log('\n== pricing (the owner\'s rules, 31 July 2026) ==');
+// The example he worked by hand: 200x120 عادي -> 2 * 1.2 * 550.
+ok('worked example 200x120 = 1320', quote_(200, 120, 'العادي', false).screen === 1320,
+   quote_(200, 120, 'العادي', false).screen);
+// Any side under a metre bills as a metre.
+ok('80x60 billed as 1x1 = 550', quote_(80, 60, 'العادي', false).screen === 550,
+   quote_(80, 60, 'العادي', false).screen);
+ok('80x120 bills the 80 as 100', quote_(80, 120, 'العادي', false).screen === 660,
+   quote_(80, 120, 'العادي', false).screen);
+// Two leaves: only when BOTH 200 wide and 150 high are reached.
+ok('200x150 adds 130', quote_(200, 150, 'العادي', false).twoPanel === 130);
+ok('200x120 adds nothing', quote_(200, 120, 'العادي', false).twoPanel === 0);
+ok('190x160 adds nothing', quote_(190, 160, 'العادي', false).twoPanel === 0);
+// Rates per type.
+ok('مضلم uses 650', quote_(100, 100, 'المضلم', false).screen === 650);
+ok('مزدوج uses 750', quote_(100, 100, 'المزدوج', false).screen === 750);
+// Agadir gets installation and no delivery; everywhere else gets delivery.
+ok('agadir total = screen + install', quote_(200, 120, 'العادي', true).total === 1320 + 150,
+   quote_(200, 120, 'العادي', true).total);
+ok('outside agadir = screen + delivery', quote_(200, 120, 'العادي', false).total === 1320 + 60,
+   quote_(200, 120, 'العادي', false).total);
+ok('big piece outside agadir stacks 130 + 60',
+   quote_(200, 150, 'العادي', false).total === 1650 + 130 + 60,
+   quote_(200, 150, 'العادي', false).total);
+
+// Measurement parsing, in the shapes customers actually type.
+[['بغيت شرجم 200 على 120', 200, 120], ['200x120', 200, 120], ['200*120', 200, 120],
+ ['2m sur 1.20', 200, 120], ['150 علا 90', 150, 90], ['1,5 x 2', 150, 200],
+ ['200 سنتيم على 120 سنتيم', 200, 120]]
+  .forEach(([t, w, h]) => {
+    const d = parseMeasurements_(t);
+    ok('parse ' + JSON.stringify(t), !!d && d.wCm === w && d.hCm === h, JSON.stringify(d));
+  });
+ok('no measurements -> null', parseMeasurements_('بشحال الموستكير؟') === null);
+ok('phone number is not a measurement', parseMeasurements_('0666567672') === null);
+
+ok('type from text: blackout', detectType_('bghit blackout') === 'المضلم');
+ok('type from text: مضلم', detectType_('واش عندك المضلم') === 'المضلم');
+ok('type from text: default عادي', detectType_('شرجم 200 على 120') === 'العادي');
+ok('agadir detected', mentionsAgadir_('انا من اكادير') === true);
+ok('agadir detected in latin', mentionsAgadir_('ana f agadir') === true);
+ok('casa is not agadir', mentionsAgadir_('ana f casa') === false);
+
+// The block handed to the model must carry the finished number, never an expression
+// for it to evaluate.
+const blk = priceBlock_('شرجم 200 على 120 وانا من اكادير');
+ok('price block carries the total', blk.indexOf('1470') !== -1, blk);
+ok('price block flags agadir install', blk.indexOf('التركيب') !== -1);
+ok('price block omits delivery in agadir', blk.indexOf('التوصيل') === -1);
+ok('no measurements -> empty block', priceBlock_('بشحال؟') === '');
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

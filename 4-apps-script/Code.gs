@@ -192,6 +192,115 @@ function mentionsUnverifiedTopic_(text) {
 }
 
 // ---------------------------------------------------------------------------
+// PRICING
+//
+// The arithmetic lives here, not in the prompt. A language model asked to work out
+// 2 * 1.2 * 550 will mostly get it right and occasionally not, and a wrong total is
+// money out of the workshop's pocket. So: code computes the number, the model only
+// writes the sentence around it.
+// ---------------------------------------------------------------------------
+
+const RATES = { 'العادي': 550, 'المضلم': 650, 'المزدوج': 750 };
+
+/** Rules the owner confirmed 31 July 2026. */
+const PRICING = {
+  MIN_CM: 100,          // any side under 1 m is billed as 1 m
+  TWO_PANEL_W: 200,     // at or above this width AND height, the piece needs two leaves
+  TWO_PANEL_H: 150,
+  TWO_PANEL_FEE: 130,
+  DELIVERY: 60,         // per screen, not per order
+  INSTALL: 150,         // per screen
+};
+
+/**
+ * Pulls "200 على 120", "200x120", "2m sur 1.20" and friends out of a message.
+ * Returns {wCm, hCm} or null. Numbers of 10 or less are read as metres — nobody
+ * orders a 2 cm window, and everybody writes 2 for two metres.
+ */
+function parseMeasurements_(text) {
+  const m = String(text || '').match(
+    /(\d+(?:[.,]\d+)?)\s*(?:cm|سم|سنتيم|m\b|متر)?\s*(?:x|×|\*|\/|على|علا|3la|sur|par)\s*(\d+(?:[.,]\d+)?)/i);
+  if (!m) return null;
+  const cm = (s) => {
+    const n = parseFloat(String(s).replace(',', '.'));
+    return n <= 10 ? n * 100 : n;
+  };
+  const wCm = cm(m[1]), hCm = cm(m[2]);
+  // Guard against phone numbers and years matching the pattern.
+  if (!(wCm > 0 && hCm > 0) || wCm > 1000 || hCm > 1000) return null;
+  return { wCm: wCm, hCm: hCm };
+}
+
+/** Which of the three rates the customer named. Defaults to العادي. */
+function detectType_(text) {
+  const t = String(text || '').toLowerCase();
+  if (/مضلم|مظلم|blackout|mdallam|mdalam/.test(t)) return 'المضلم';
+  if (/مزدوج|double|mzdouj|lmzdouj/.test(t)) return 'المزدوج';
+  return 'العادي';
+}
+
+/** True when the customer says they are in Agadir — installation is always added there. */
+function mentionsAgadir_(text) {
+  return /أكادير|اكادير|كادير|agadir/i.test(String(text || ''));
+}
+
+/**
+ * The full quote for ONE screen. Every line is a rule the owner stated; nothing is
+ * estimated. `screen` is the mesh alone, which is what he quotes first.
+ */
+function quote_(wCm, hCm, type, inAgadir) {
+  const rate = RATES[type] || RATES['العادي'];
+  const w = Math.max(wCm, PRICING.MIN_CM) / 100;
+  const h = Math.max(hCm, PRICING.MIN_CM) / 100;
+  const screen = Math.round(w * h * rate);
+  const twoPanel = (wCm >= PRICING.TWO_PANEL_W && hCm >= PRICING.TWO_PANEL_H)
+    ? PRICING.TWO_PANEL_FEE : 0;
+  const install = inAgadir ? PRICING.INSTALL : 0;
+  return {
+    type: type, rate: rate, wCm: wCm, hCm: hCm,
+    billedW: w, billedH: h,
+    screen: screen,
+    twoPanel: twoPanel,
+    delivery: PRICING.DELIVERY,
+    install: install,
+    // In Agadir he installs it himself, so there is nothing to deliver.
+    total: screen + twoPanel + (inAgadir ? install : PRICING.DELIVERY),
+  };
+}
+
+/**
+ * The block handed to the model when a message contains measurements. Written as
+ * finished figures so the model copies rather than calculates. Empty string when
+ * there is nothing to quote — then the usual "send your measurements" reply applies.
+ */
+function priceBlock_(text) {
+  const dims = parseMeasurements_(text);
+  if (!dims) return '';
+  const inAgadir = mentionsAgadir_(text);
+  const q = quote_(dims.wCm, dims.hCm, detectType_(text), inAgadir);
+
+  const lines = [
+    '[الثمن محسوب ليك — نقلو بحالو، ما تحسبش حتى حاجة بوحدك]',
+    'القياس: ' + q.wCm + ' × ' + q.hCm + ' سم' +
+      ((q.wCm < PRICING.MIN_CM || q.hCm < PRICING.MIN_CM)
+        ? ' (اللي أقل من 100 سم كيتحسب 100 سم)' : ''),
+    'النوع: ' + q.type + ' — ' + q.rate + ' درهم للمتر المربع',
+    'الموستكير بوحدو: ' + q.billedW + ' × ' + q.billedH + ' × ' + q.rate +
+      ' = ' + q.screen + ' درهم',
+  ];
+  if (q.twoPanel) lines.push('جوج بيبان (حيت القياس كبير): + ' + q.twoPanel + ' درهم');
+  if (q.install) {
+    lines.push('التركيب: + ' + q.install + ' درهم (الزبون فأكادير)');
+  } else {
+    lines.push('التوصيل: + ' + q.delivery + ' درهم لكل موستكير');
+    lines.push('التركيب 150 درهم لكل موستكير — عرضو عليه إلا سولك');
+  }
+  lines.push('المجموع: ' + q.total + ' درهم');
+  lines.push('هادا الثمن ديال موستكير واحد. إلا بغا كثر من واحد، كل واحد بوحدو.');
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // CLAUDE
 // ---------------------------------------------------------------------------
 
@@ -208,7 +317,12 @@ function generateReply_(msg) {
   // script is the most obvious bot tell there is, so this is worth pinning down.
   const script = detectScript_(msg.text);
   const instruction = SCRIPT_INSTRUCTION[script];
-  const prompt = where + '\n' + instruction + '\n\n' + msg.text;
+
+  // If they sent measurements, the total is worked out in code and handed over as a
+  // finished figure. The model has never been trusted with the multiplication.
+  const price = priceBlock_(msg.text);
+  const prompt = where + '\n' + instruction + '\n\n' + msg.text +
+                 (price ? '\n\n' + price : '');
 
   let ai = parseAiJson_(callClaudeWithRetry_(prompt));
 

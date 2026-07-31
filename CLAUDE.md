@@ -9,7 +9,7 @@ message, so a bloated file costs exactly what it is meant to save.
 screens (موستكير). Sells on WhatsApp **0666567672**. Runs free on Google Apps Script,
 whether or not the owner's PC is on.
 
-Live code: `4-apps-script/`. Run `node test.js` there after any change — **122 assertions**.
+Live code: `4-apps-script/`. Run `node test.js` there after any change — **153 assertions**.
 
 ## Standing behaviour — do this without being asked
 
@@ -72,7 +72,10 @@ Everything else installed is for domains this project doesn't have. Ignore it.
    `scriptIsClean_`) because prompt rules alone held only 5 times in 9.
 4. **No tashkeel, no dashes, no curly quotes, no ellipsis characters.** Instant bot tells.
 5. **Prices: العادي 550 / المضلم 650 / المزدوج 750 per m².** 439, 440 and 470 are صولد
-   prices — never quote them as standard.
+   prices — never quote them as standard. Sides under 100 سم bill as 100. 200×150+ adds
+   130 for جوج بيبان. Delivery 60 **per screen**; installation 150 per screen, always
+   added in Agadir (no delivery there). The maths lives in `Code.gs` `quote_()` — the
+   model is never asked to multiply.
 6. **Phone: 0666567672 only.** Not 0674191830.
 7. **Enforce in code what matters.** Every prompt-only rule here eventually failed. If it
    costs a customer when it breaks, guard it in code as well.
@@ -95,7 +98,8 @@ archive/           superseded architectures, kept as fallback
 
 - Anthropic API key returns **401** — nothing runs until it is replaced
 - Instagram and TikTok APIs unavailable; screenshot and voice modes work without them
-- Unconfirmed: انوكس 304L as the material, the 2/1 model, the 130 درهم item, delivery time
+- Unconfirmed: انوكس 304L as the material, the 2/1 model, delivery time
+  (the 130 درهم item turned out to be the جوج بيبان supplement — answered 31 July)
 
 ## The thing that matters more than code
 
