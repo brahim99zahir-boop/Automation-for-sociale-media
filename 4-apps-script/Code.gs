@@ -1421,7 +1421,21 @@ function installTrigger() {
   if (CONFIG.DAILY_SUMMARY) {
     ScriptApp.newTrigger('dailySummary').timeBased().atHour(20).everyDays(1).create();
   }
-  Logger.log('Triggers installed: every 15 min' +
+
+  // The control panel is a menu on the spreadsheet. This script is standalone, not bound
+  // to that sheet, so a plain onOpen() would never fire — it needs an installable trigger
+  // pointed at the spreadsheet by id.
+  if (CONFIG.SPREADSHEET_ID) {
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === 'onOpenMenu') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('onOpenMenu').forSpreadsheet(CONFIG.SPREADSHEET_ID).onOpen().create();
+    Logger.log('Menu installed on the spreadsheet — reload it to see ⚙️ فيها خير.');
+  } else {
+    Logger.log('No SPREADSHEET_ID yet, so no menu. Run setupSheet first, then re-run this.');
+  }
+
+  Logger.log('Triggers installed: every 5 min' +
     (CONFIG.DAILY_SUMMARY ? ', daily summary at 20:00.' : '.'));
 }
 

@@ -45,8 +45,23 @@ const fakeSheet = {
 global.__fakeSheet = fakeSheet;
 global.__SHEETDATA = SHEETDATA;
 
+// Alerts raised by the sheet menu land in global.__ALERTS as [title, body]; the menu
+// definition itself lands in global.__MENU as [[label, functionName], ...].
+const ALERTS = [];
+global.__ALERTS = ALERTS;
+const fakeMenu = {
+  _items: [],
+  addItem(label, fn) { this._items.push([label, fn]); return this; },
+  addSeparator() { return this; },
+  addToUi() { global.__MENU = this._items.slice(); this._items = []; },
+};
 global.SpreadsheetApp = {
   openById: () => ({ getUrl: () => 'https://sheet', getSheetByName: () => fakeSheet }),
+  getUi: () => ({
+    ButtonSet: { OK: 'OK' },
+    alert: (title, body) => ALERTS.push([title, body]),
+    createMenu: () => fakeMenu,
+  }),
 };
 global.ScriptApp = { getService: () => ({ getUrl: () => 'https://script.example/exec' }) };
 global.HtmlService = {

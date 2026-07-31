@@ -480,6 +480,45 @@ ok('owner told', __EMAILS.length === mailsBefore + 1);
 countReview_(false);
 ok('does not re-fire past 30', __EMAILS.length === mailsBefore + 1);
 
+console.log('\n== the sheet menu (the control panel that is not a web page) ==');
+onOpenMenu();
+ok('menu is built', Array.isArray(__MENU) && __MENU.length === 6, (__MENU || []).length);
+ok('every menu item points at a real function',
+   __MENU.every(([, fn]) => typeof global[fn] === 'function'),
+   (__MENU.find(([, fn]) => typeof global[fn] !== 'function') || [])[1]);
+
+// Each toggle flips the setting it names, and nothing else.
+setSetting_('AUTOMATION_ENABLED', true);
+menuToggleRunning();
+ok('running toggles off', getSetting_('AUTOMATION_ENABLED') === false);
+menuToggleRunning();
+ok('and back on', getSetting_('AUTOMATION_ENABLED') === true);
+
+setSetting_('DRAFT_ONLY_MODE', true);
+menuToggleDraft();
+ok('draft mode toggles', getSetting_('DRAFT_ONLY_MODE') === false);
+ok('draft toggle did not touch the master switch', getSetting_('AUTOMATION_ENABLED') === true);
+setSetting_('DRAFT_ONLY_MODE', true);
+
+setSetting_('ALWAYS_ASK_APPROVAL', true);
+menuToggleApproval();
+ok('approval toggles', getSetting_('ALWAYS_ASK_APPROVAL') === false);
+setSetting_('ALWAYS_ASK_APPROVAL', true);
+
+setPlatformEnabled_('instagram', false);
+menuToggleInstagram();
+ok('instagram toggles on', platformEnabled_('instagram') === true);
+ok('facebook untouched', platformEnabled_('facebook') === false);
+setPlatformEnabled_('instagram', false);
+
+// The status box must survive a sheet that does not exist yet and never throw.
+const alertsBefore = __ALERTS.length;
+menuStatus();
+ok('status shows something', __ALERTS.length === alertsBefore + 1);
+ok('status names the automation state', __ALERTS[__ALERTS.length - 1][1].indexOf('الأوتوماسيون خدام') !== -1);
+ok('status shows the review progress',
+   __ALERTS[__ALERTS.length - 1][1].indexOf('مسودات قريتيهم') !== -1);
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

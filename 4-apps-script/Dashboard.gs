@@ -592,6 +592,110 @@ function dashboardHtml_(d) {
 '</script></body></html>';
 }
 
+// ---------------------------------------------------------------------------
+// THE CONTROL PANEL, IN THE SPREADSHEET
+//
+// The HTML dashboard renders through HtmlService, and on the owner's machine it came
+// out unusable twice — which is impossible to debug from here, since I cannot open his
+// browser. This does the same job with no HTML at all: a native menu on the sheet he
+// already has open, using Google's own UI.
+//
+// It also removes the whole class of problem behind it. No web-app deployment, no
+// /dev-versus-/exec confusion, no secret token in a URL that can leak by being pasted
+// somewhere. Access is just: whoever can open the spreadsheet.
+//
+// The web app stays deployed, because the WhatsApp click tracking and the approve and
+// reject links in the emails are URLs on it. Those are redirects and one-line pages —
+// nothing that can break in layout.
+// ---------------------------------------------------------------------------
+
+/** Installed by installTrigger() as an on-open trigger for the spreadsheet. */
+function onOpenMenu() {
+  SpreadsheetApp.getUi().createMenu('⚙️ فيها خير')
+    .addItem('📊 الحالة والأرقام', 'menuStatus')
+    .addSeparator()
+    .addItem('⏯️ حبس / تشغيل الأوتوماسيون', 'menuToggleRunning')
+    .addItem('🧪 وضع الاختبار (مسودات فقط)', 'menuToggleDraft')
+    .addItem('✋ يسول عليا قبل كل رد', 'menuToggleApproval')
+    .addSeparator()
+    .addItem('📷 إنستغرام', 'menuToggleInstagram')
+    .addItem('👍 فيسبوك', 'menuToggleFacebook')
+    .addToUi();
+}
+
+/** Everything worth knowing, in one box. Read-only — no button can be hit by accident. */
+function menuStatus() {
+  const today = Utilities.formatDate(new Date(), 'Africa/Casablanca', 'yyyy-MM-dd');
+  const use = usageForDay_(today);
+  const cost = costOf_(use);
+  const month = usageWindow_(30);
+
+  const sh = safeSheet_();
+  const rows = sh ? sh.getDataRange().getValues().slice(1) : [];
+  const todayRows = rows.filter(r => String(r[0]).indexOf(today) === 0);
+  const hot = todayRows.filter(r => r[6] === 'ساخن').length;
+  const pending = rows.filter(r => String(r[8]).indexOf('بانتظار') === 0).length;
+
+  const reviewed = Number(
+    PropertiesService.getScriptProperties().getProperty(PROP.REVIEWED) || 0);
+  const yn = (b) => (b ? 'واه' : 'لا');
+
+  SpreadsheetApp.getUi().alert('فيها خير — الحالة',
+    'الأوتوماسيون خدام: ' + yn(getSetting_('AUTOMATION_ENABLED')) + '\n' +
+    'وضع الاختبار (ما كينشرش): ' + yn(getSetting_('DRAFT_ONLY_MODE')) + '\n' +
+    'كيسول قبل كل رد: ' + yn(getSetting_('ALWAYS_ASK_APPROVAL')) + '\n\n' +
+    'إنستغرام: ' + yn(platformEnabled_('instagram')) +
+      '   |   فيسبوك: ' + yn(platformEnabled_('facebook')) + '\n\n' +
+    '— اليوم —\n' +
+    'رسائل: ' + todayRows.length + '   منهم سخان: ' + hot + '\n' +
+    'كليكات على الواتساب: ' + clicksForDay_(today) + '\n' +
+    'الثمن: ' + cost.mad.toFixed(2) + ' درهم\n\n' +
+    '— الشهر —\n' +
+    'الثمن: ' + month.cost.mad.toFixed(2) + ' درهم\n' +
+    'الطلبات: ' + month.total.calls + '\n\n' +
+    'كيتسناو موافقتك: ' + pending + '\n' +
+    'مسودات قريتيهم: ' + reviewed + ' من ' + CONFIG.AUTO_ENABLE_AFTER,
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/** Flips a setting and says what it is now. Shared by every toggle in the menu. */
+function menuFlip_(key, label, onText, offText) {
+  const now = !getSetting_(key);
+  setSetting_(key, now);
+  SpreadsheetApp.getUi().alert(label, now ? onText : offText,
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function menuToggleRunning() {
+  menuFlip_('AUTOMATION_ENABLED', 'الأوتوماسيون',
+    'ولا خدام. كيتشيك كل 5 دقايق.',
+    'تحبس. ما غادي يقرا ولا يجاوب حتى تعاود تشعلو.');
+}
+
+function menuToggleDraft() {
+  menuFlip_('DRAFT_ONLY_MODE', 'وضع الاختبار',
+    'مشعل. كل رد كيوصلك فالإيميل وحتى واحد ما كينشر.',
+    'مطفي. الردود ولاو كينشرو بصح على إنستغرام.');
+}
+
+function menuToggleApproval() {
+  menuFlip_('ALWAYS_ASK_APPROVAL', 'الموافقة',
+    'كيسول عليك قبل كل رد.',
+    'كيجاوب بوحدو. الثمن والشكاية والمواضيع اللي ماعندناش فيها معلومة ' +
+    'كيبقاو كيتسناو موافقتك على أي حال.');
+}
+
+/** Platforms live under their own keys, so they do not go through menuFlip_. */
+function menuTogglePlatform_(name, label) {
+  const now = !platformEnabled_(name);
+  setPlatformEnabled_(name, now);
+  SpreadsheetApp.getUi().alert(label, now ? 'ولا مشعل.' : 'تطفا.',
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function menuToggleInstagram() { menuTogglePlatform_('instagram', 'إنستغرام'); }
+function menuToggleFacebook() { menuTogglePlatform_('facebook', 'فيسبوك'); }
+
 function kpi_(value, label, cls) {
   return '<div class="kpi ' + cls + '"><b>' + escapeHtml_(String(value)) + '</b>' +
          '<span>' + label + '</span></div>';
