@@ -532,6 +532,38 @@ ScriptApp.getService = realGetUrl;
 ok('tracked link used when deployed',
    trackedWhatsappLink_('zbon', 'x').indexOf('?w=1') !== -1);
 
+console.log('\n== no raw braces in any URL ==');
+// UrlFetchApp throws "Invalid argument" on a raw { or } and never sends the request, so
+// every DM was silently lost. Graph needs braces for nested fields, so they get encoded.
+ok('fields_ encodes the braces',
+   fields_('a,b.limit(1){c,d}').indexOf('%7B') !== -1 &&
+   fields_('a,b.limit(1){c,d}').indexOf('{') === -1,
+   fields_('a,b.limit(1){c,d}'));
+
+PLATFORMS.instagram.igUserId = 'IG123';
+PLATFORMS.facebook.pageId = 'FB123';
+H.props['META_ACCESS_TOKEN'] = 'tok';
+global.__ROUTES = {
+  'me/conversations': { body: { data: [] } },
+  'FB123/conversations': { body: { data: [] } },
+};
+global.__CALLS = [];
+Instagram.fetchDMs();
+Facebook.fetchDMs();
+ok('both DM endpoints were called', global.__CALLS.length === 2, global.__CALLS.length);
+ok('no URL contains a raw brace',
+   global.__CALLS.every(u => u.indexOf('{') === -1 && u.indexOf('}') === -1),
+   global.__CALLS.find(u => u.indexOf('{') !== -1));
+ok('the nested fields survive encoded',
+   global.__CALLS.every(u => u.indexOf('messages.limit(1)%7B') !== -1),
+   global.__CALLS[0]);
+ok('instagram still asks for attachments',
+   global.__CALLS[0].indexOf('attachments') !== -1);
+PLATFORMS.instagram.igUserId = '';
+PLATFORMS.facebook.pageId = '';
+delete H.props['META_ACCESS_TOKEN'];
+global.__ROUTES = {};
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

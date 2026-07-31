@@ -1063,10 +1063,9 @@ const Instagram = {
     // Instagram DM threads live on the linked Page's conversations edge.
     // `attachments` is what makes voice notes visible at all. Without it a customer who
     // records instead of typing arrives as an empty message and is silently dropped.
-    const url = IG_GRAPH +
-      'me/conversations?platform=instagram&fields=participants,messages.limit(1)' +
-      '{id,message,from,created_time,attachments}&limit=20&access_token=' +
-      encodeURIComponent(token);
+    const url = IG_GRAPH + 'me/conversations?platform=instagram&' +
+      fields_('participants,messages.limit(1){id,message,from,created_time,attachments}') +
+      '&limit=20&access_token=' + encodeURIComponent(token);
 
     const threads = httpGetJson_(url).data || [];
     for (const t of threads) {
@@ -1125,6 +1124,16 @@ const Instagram = {
  * voice notes as type "audio"; anything else (image, video, share) is not our business
  * here and comes back empty.
  */
+/**
+ * Graph asks for nested fields with braces — messages.limit(1){id,message}. UrlFetchApp
+ * refuses a raw brace in a URL and throws "Invalid argument" before the request is even
+ * made, which is what silently stopped every DM from being read. Encoding the whole
+ * fields value fixes it; Graph decodes it again on its side.
+ */
+function fields_(spec) {
+  return 'fields=' + encodeURIComponent(spec);
+}
+
 function voiceAttachment_(m) {
   const atts = (m && m.attachments && m.attachments.data) || [];
   for (const a of atts) {
@@ -1177,8 +1186,8 @@ const Facebook = {
     const token = fbToken_();
     const out = [];
 
-    const url = GRAPH + cfg.pageId +
-      '/conversations?fields=participants,messages.limit(1){id,message,from}' +
+    const url = GRAPH + cfg.pageId + '/conversations?' +
+      fields_('participants,messages.limit(1){id,message,from}') +
       '&limit=20&access_token=' + encodeURIComponent(token);
 
     const threads = httpGetJson_(url).data || [];
