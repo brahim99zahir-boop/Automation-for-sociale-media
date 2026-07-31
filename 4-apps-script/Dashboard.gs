@@ -263,6 +263,12 @@ function dashboardHtml_(d) {
     '</tr>').join('');
 
   return '' +
+// Without a doctype the browser renders in quirks mode, where the box model and flex
+// layout behave differently and the page falls apart. HtmlService does not add one, so
+// it has to be here — along with a real head, which is where meta and style belong.
+'<!DOCTYPE html>' +
+'<html lang="ar" dir="rtl"><head>' +
+'<meta charset="utf-8">' +
 '<!-- self-contained: no external CSS, JS, fonts or images, so it loads anywhere -->' +
 // The dashboard token is in the URL, so the browser would otherwise put it in the Referer
 // header of every outbound click (the Anthropic console link, the spreadsheet link) and
@@ -338,7 +344,7 @@ function dashboardHtml_(d) {
 '  .item{border-color:#1f2937}' +
 '  .lead-cold{background:#1f2937;color:#9ca3af}' +
 ' }' +
-'</style>' +
+'</style></head><body>' +
 
 '<div class="wrap">' +
   '<h1>فيها خير — لوحة التحكم</h1>' +
@@ -350,7 +356,7 @@ function dashboardHtml_(d) {
       '<span id="pill" class="pill ' + (d.running ? 'on' : 'off') + '">' +
         '<span class="dot"></span><span id="pilltext">' +
         (d.running ? 'الأوتوماسيون خدام' : 'الأوتوماسيون واقف') + '</span></span>' +
-      '<p class="sub" style="margin:10px 0 0">كيتشيك كل 15 دقيقة على سيرفرات جوجل. ' +
+      '<p class="sub" style="margin:10px 0 0">كيتشيك كل 5 دقايق على سيرفرات جوجل. ' +
         'ما كيحتاجش الحاسوب ديالك يكون مشعل.</p>' +
     '</div>' +
     '<button id="power" class="big ' + (d.running ? 'stop' : 'start') + '">' +
@@ -583,7 +589,7 @@ function dashboardHtml_(d) {
 '    }).catch(function(e){alert(e);el.checked=!el.checked;el.disabled=false});' +
 '  };' +
 '});' +
-'</script>';
+'</script></body></html>';
 }
 
 function kpi_(value, label, cls) {

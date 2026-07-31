@@ -137,6 +137,30 @@ ok('meta verify rejects wrong token',
    doGet({ parameter: { 'hub.mode': 'subscribe', 'hub.verify_token': 'bad',
                         'hub.challenge': 'CH123' } }).getContent() === 'Forbidden');
 
+console.log('\n== dashboard document structure ==');
+// No doctype means quirks mode, where the box model and flex layout differ and the page
+// collapses. This is what broke it on the owner's screen the first time he opened it.
+ok('starts with a doctype', dash.indexOf('<!DOCTYPE html>') === 0, dash.slice(0, 40));
+ok('has a head', dash.indexOf('<head>') !== -1);
+ok('has a body', dash.indexOf('<body>') !== -1);
+ok('closes html', dash.indexOf('</body></html>') !== -1);
+ok('style sits inside head',
+   dash.indexOf('<style>') < dash.indexOf('</head>') &&
+   dash.indexOf('</style>') < dash.indexOf('</head>'));
+ok('content sits inside body', dash.indexOf('<body>') < dash.indexOf('class="wrap"'));
+ok('declares rtl on the document', dash.indexOf('dir="rtl"') !== -1);
+ok('declares the charset', dash.indexOf('<meta charset="utf-8">') !== -1);
+// Balance the real markup only — the script block builds HTML in strings, which a naive
+// tag count reads as unclosed tags.
+ok('divs balance in the markup', (() => {
+  const markup = dash.slice(0, dash.indexOf('<script'));
+  let depth = 0, m;
+  const re = /<div[^>]*>|<\/div>/g;
+  while ((m = re.exec(markup))) depth += (m[0] === '</div>' ? -1 : 1);
+  return depth === 0;
+})());
+ok('poll interval text matches installTrigger', dash.indexOf('5 دقايق') !== -1);
+
 console.log('\n== dashboard content ==');
 ok('shows the customer messages', dash.indexOf('رسالة A') !== -1);
 ok('shows lead badges', dash.indexOf('lead-hot') !== -1);
