@@ -59,7 +59,16 @@ global.ContentService = {
   MimeType: { JSON: 'json' },
   createTextOutput: t => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }),
 };
-global.GmailApp = { sendEmail: (...a) => EMAILS.push(a) };
+// Gmail stub. Tests describe threads in global.__THREADS as {subject, bodies:[...]};
+// the last body stands in for the owner's reply.
+global.GmailApp = {
+  sendEmail: (...a) => EMAILS.push(a),
+  search: () => (global.__THREADS || []).map(t => ({
+    getFirstMessageSubject: () => t.subject,
+    getMessages: () => t.bodies.map(b => ({ getPlainBody: () => b })),
+    markRead() { t.read = true; },
+  })),
+};
 const EMAILS = [];
 global.__EMAILS = EMAILS;
 global.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };

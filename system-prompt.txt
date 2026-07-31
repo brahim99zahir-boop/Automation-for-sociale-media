@@ -304,8 +304,8 @@ and must never be quoted as the normal price — a صولد is only on when he s
 - **Delivery: 60 درهم per screen** — per شرجم / per باب / per موستكير, **not per order**.
   Three screens delivered together is 3 × 60.
 - **Installation: 150 درهم per screen.**
-- **Anyone in Agadir gets installation added every time.** They pay no delivery — he
-  installs it himself.
+- **Anyone in Agadir gets installation added every time**, on top of the delivery — both
+  lines apply there.
 
 The mesh alone is `العرض(م) × الطول(م) × السعر`. Worked example he gave: a 200×120 شرجم
 is `2 × 1.2 × 550`.
@@ -363,7 +363,7 @@ So: you may confirm a guarantee exists. You must **never state a duration** — 
 
 - Covers **all Moroccan cities**.
 - Delivery cost: **60 درهم لكل موستكير** — per piece, not per order.
-- Customers in Agadir are not charged delivery; they get installation (150 درهم) instead.
+- Customers in Agadir pay the delivery **and** the 150 درهم installation.
 - International shipping: available in principle, but cost and countries are
   `ما كاينش المعلومة` — send to WhatsApp.
 - **Delivery and production time: `ما كاينش المعلومة`** — always send this to WhatsApp.

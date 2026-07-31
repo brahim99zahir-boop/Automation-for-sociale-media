@@ -43,6 +43,14 @@ function checkEverything() {
       Logger.log('Automation is stopped from the dashboard; doing nothing.');
       return;
     }
+    // The owner's replies to approval emails, first — a correction waiting in the inbox
+    // should go out before this run adds more drafts on top of it.
+    try {
+      checkEmailReplies_();
+    } catch (err) {
+      notifyError_('checkEmailReplies', err, '');
+    }
+
     let total = 0;
     for (const name of Object.keys(PLATFORMS)) {
       if (!platformEnabled_(name)) continue;
@@ -96,6 +104,15 @@ function runPlatform_(name, cfg) {
  * Core per-message logic — identical for every platform and for comments vs DMs.
  */
 function processMessage_(msg) {
+  // A voice note the system cannot hear. Claude has no audio input at all — the API
+  // takes text, images and documents and nothing else — so without a transcription key
+  // there is nothing to answer. Saying so and asking for the measurement in writing
+  // beats both silence and a guess at what was said.
+  if (msg.isVoice && !hasSecret_(PROP.GOOGLE_STT_KEY)) {
+    handleVoiceWithoutStt_(msg);
+    return;
+  }
+
   const ai = generateReply_(msg);
 
   // Nothing worth saying (tag, emoji, spam) — log and move on.
@@ -182,6 +199,40 @@ function maybePrivateReply_(msg, ai) {
   }
 }
 
+/**
+ * Voice note, no transcription available. Answers in the customer's own alphabet, tells
+ * the owner it happened, and logs it — a lead that recorded instead of typing is still
+ * a lead, and he can listen to it himself in Instagram.
+ */
+function handleVoiceWithoutStt_(msg) {
+  const reply = detectScript_(msg.text || 'واه') === 'arabic'
+    ? 'سلام. ما قدرناش نسمعو الفوكال من هنا. صيفط لينا القياس ديال الشباك كتابة، ولا ' +
+      'ديريكت ف الواتساب ' + CONFIG.WHATSAPP_DISPLAY + ' ونعطيوك الثمن.'
+    : 'Salam. ma 9derna nsm3o lvocal mn hna. sift lina l9ias dyal chbak ktaba, wla ' +
+      'direct f whatsapp ' + CONFIG.WHATSAPP_DISPLAY + ' o n3tiwk taman.';
+
+  const ai = { reply: reply, client_type: 'أخرى', lead: 'دافئ' };
+  logToSheet_(msg, ai, 'رسالة صوتية — طلبنا منو يكتب');
+
+  try {
+    if (!getSetting_('DRAFT_ONLY_MODE')) deliver_(msg, ai);
+  } catch (err) {
+    notifyError_('voiceReply', err, msg.author);
+  }
+
+  try {
+    GmailApp.sendEmail(CONFIG.OWNER_EMAIL,
+      '🎤 رسالة صوتية من @' + msg.author,
+      'وصلات رسالة صوتية وما قدرناش نسمعوها.\n\n' +
+      'رددنا عليه وطلبنا منو يكتب القياس.\n\n' +
+      'سمعها بيدك ف إنستغرام إلا بغيتي.\n' +
+      (msg.voiceUrl ? '\nالتسجيل: ' + msg.voiceUrl + '\n' : '') +
+      '\nباش يفهم الفوكال بوحدو، خاص مفتاح Google Speech-to-Text ف setSecrets.');
+  } catch (err) {
+    Logger.log('Voice notification failed: ' + err);
+  }
+}
+
 /** Returns the matched topic word, or '' if the message is clear. */
 function mentionsUnverifiedTopic_(text) {
   const t = String(text || '');
@@ -263,8 +314,8 @@ function quote_(wCm, hCm, type, inAgadir) {
     twoPanel: twoPanel,
     delivery: PRICING.DELIVERY,
     install: install,
-    // In Agadir he installs it himself, so there is nothing to deliver.
-    total: screen + twoPanel + (inAgadir ? install : PRICING.DELIVERY),
+    // Agadir pays both — installation on top of delivery, confirmed by the owner.
+    total: screen + twoPanel + install + PRICING.DELIVERY,
   };
 }
 
@@ -289,12 +340,9 @@ function priceBlock_(text) {
       ' = ' + q.screen + ' درهم',
   ];
   if (q.twoPanel) lines.push('جوج بيبان (حيت القياس كبير): + ' + q.twoPanel + ' درهم');
-  if (q.install) {
-    lines.push('التركيب: + ' + q.install + ' درهم (الزبون فأكادير)');
-  } else {
-    lines.push('التوصيل: + ' + q.delivery + ' درهم لكل موستكير');
-    lines.push('التركيب 150 درهم لكل موستكير — عرضو عليه إلا سولك');
-  }
+  if (q.install) lines.push('التركيب: + ' + q.install + ' درهم (الزبون فأكادير)');
+  lines.push('التوصيل: + ' + q.delivery + ' درهم لكل موستكير');
+  if (!q.install) lines.push('التركيب 150 درهم لكل موستكير — عرضو عليه إلا سولك');
   lines.push('المجموع: ' + q.total + ' درهم');
   lines.push('هادا الثمن ديال موستكير واحد. إلا بغا كثر من واحد، كل واحد بوحدو.');
   return lines.join('\n');
@@ -321,10 +369,23 @@ function generateReply_(msg) {
   // If they sent measurements, the total is worked out in code and handed over as a
   // finished figure. The model has never been trusted with the multiplication.
   const price = priceBlock_(msg.text);
-  const prompt = where + '\n' + instruction + '\n\n' + msg.text +
-                 (price ? '\n\n' + price : '');
 
-  let ai = parseAiJson_(callClaudeWithRetry_(prompt));
+  // What the comment is sitting under. A comment reading "وهاد اللي فالصورة؟" is
+  // unanswerable without it, and the caption arrives free with the media call.
+  const context = msg.postCaption
+    ? '[البوست اللي كيعلق عليه]\n' + String(msg.postCaption).slice(0, 600)
+    : '';
+
+  const prompt = where + '\n' + instruction +
+                 (context ? '\n\n' + context : '') +
+                 '\n\n' + msg.text +
+                 (price ? '\n\n' + price : '') +
+                 correctionsBlock_();
+
+  // Only a comment that points at something visible is worth paying to look at.
+  const image = refersToSomethingVisual_(msg.text) ? fetchImageBlock_(msg.postImage) : null;
+
+  let ai = parseAiJson_(callClaudeWithRetry_(prompt, CONFIG.CLAUDE_MODEL, image));
 
   // Script-purity check. The model has been caught splicing Arabic letters into a
   // Latin reply ("wach bghit tعrf", "bghiti chno bالضبط") — that reads as broken to a
@@ -344,7 +405,64 @@ function generateReply_(msg) {
       ai.guard = 'خليط ديال الحروف';   // surfaced in the approval email
     }
   }
-  return normaliseLabels_(ai);
+  ai = normaliseLabels_(ai);
+
+  // Two-tier routing. Haiku answers everything and, in the same call, says what kind of
+  // message this was. When it turns out to be a buyer or a complaint — roughly one in
+  // ten — the answer is worth more than the second call costs, so it is written again
+  // on the stronger model. Classifying first and escalating after beats guessing from
+  // keywords: the model reads the message, a keyword list only matches it.
+  if (worthEscalating_(ai)) {
+    try {
+      const better = parseAiJson_(callClaudeWithRetry_(prompt, CONFIG.CLAUDE_MODEL_SMART, image));
+      if (better.reply && scriptIsClean_(better.reply, script)) {
+        better.escalated = true;
+        return normaliseLabels_(better);
+      }
+    } catch (err) {
+      Logger.log('Escalation failed, keeping the Haiku reply: ' + err);
+    }
+  }
+  return ai;
+}
+
+/** A buyer or an unhappy customer. Both are worth the stronger model. */
+function worthEscalating_(ai) {
+  return ai.lead === 'ساخن' || ai.client_type === 'شكوى' || ai.client_type === 'مهتم بالشراء';
+}
+
+/**
+ * Comments that point at something in the picture. Only these justify paying to send
+ * the image — roughly a dirham per thousand replies if it were sent every time, which
+ * is most of the model bill for something the caption usually already answers.
+ */
+function refersToSomethingVisual_(text) {
+  return /هاد|هادي|هادا|اللون|الصورة|الفيديو|كيبان|بحال|شنو هاد|واش هاد|hada|hadi|couleur|photo|image/i
+    .test(String(text || ''));
+}
+
+/**
+ * Downloads the post image and returns a Claude image block, or null. Never throws:
+ * a picture that will not load is a reason to answer without it, not to lose the reply.
+ */
+function fetchImageBlock_(url) {
+  if (!url) return null;
+  try {
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) return null;
+    const blob = res.getBlob();
+    const type = String(blob.getContentType() || '');
+    if (type.indexOf('image/') !== 0) return null;          // videos are not images
+    const bytes = blob.getBytes();
+    if (bytes.length > 3 * 1024 * 1024) return null;        // 5MB API cap, with room to spare
+    return {
+      type: 'image',
+      source: { type: 'base64', media_type: type, data: Utilities.base64Encode(bytes) },
+    };
+  } catch (err) {
+    Logger.log('Post image skipped: ' + err);
+    return null;
+  }
 }
 
 /**
@@ -419,8 +537,18 @@ function detectScript_(text) {
   return french.test(s) ? 'french' : 'latin';
 }
 
-/** One retry on 429/5xx — a transient API hiccup shouldn't lose a customer. */
-function callClaudeWithRetry_(userContent) {
+/**
+ * One retry on 429/5xx — a transient API hiccup shouldn't lose a customer.
+ *
+ * `model` defaults to the cheap one; the escalation path passes the stronger one.
+ * `image` is an optional Claude image block, sent ahead of the text so the model has
+ * looked at the picture before it reads the question.
+ */
+function callClaudeWithRetry_(userContent, model, image) {
+  const content = image
+    ? [image, { type: 'text', text: userContent }]
+    : userContent;
+
   for (let attempt = 1; attempt <= 2; attempt++) {
     const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post',
@@ -430,7 +558,7 @@ function callClaudeWithRetry_(userContent) {
         'anthropic-version': CONFIG.ANTHROPIC_VERSION,
       },
       payload: JSON.stringify({
-        model: CONFIG.CLAUDE_MODEL,
+        model: model || CONFIG.CLAUDE_MODEL,
         max_tokens: 400,
         // The system prompt is ~5600 tokens and byte-identical on every call, so it is
         // ~90% of the bill. Marking it cacheable makes a repeat read cost a tenth of a
@@ -438,7 +566,7 @@ function callClaudeWithRetry_(userContent) {
         // price, but a burst of comments after a post — the normal case — mostly hits.
         system: [{ type: 'text', text: SYSTEM_PROMPT,
                    cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: userContent }],
+        messages: [{ role: 'user', content: content }],
       }),
       muteHttpExceptions: true,
     });
@@ -772,11 +900,13 @@ function handleApproval_(action, token) {
 
   if (action !== 'approve') {
     updateSheetStatus_(pending.row, 'مرفوض — ما تنشرش');
+    countReview_(false);
     return html_('تم الرفض', 'ما تصيفط والو.');
   }
 
   if (getSetting_('DRAFT_ONLY_MODE')) {
     updateSheetStatus_(pending.row, 'موافق عليه — ولكن ما تصيفطش (وضع الاختبار)');
+    countReview_(false);
     return html_('تمت الموافقة',
       'وضع الاختبار مفعل، لذلك ما تصيفط والو. طفيه من اللوحة باش يخدم بصح.');
   }
@@ -784,10 +914,196 @@ function handleApproval_(action, token) {
   try {
     deliver_(pending.msg, { reply: pending.reply, lead: pending.lead });
     updateSheetStatus_(pending.row, 'تمت الموافقة وتصيفط');
+    countReview_(false);
     return html_('تصيفط ✅', escapeHtml_(pending.reply));
   } catch (err) {
     notifyError_('handleApproval/send', err, JSON.stringify(pending.msg));
     return html_('خطأ', 'ما قدرناش نصيفطو: ' + escapeHtml_(String(err)));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// REVIEWING BY EMAIL REPLY
+//
+// The two buttons in the approval email only ever said yes or no. The owner wanted to
+// fix the wording, and the place he already is when he reads the draft is his inbox —
+// so a plain reply is the edit. Whatever he writes back is what gets posted, and the
+// difference between his version and the draft is kept as an example for later.
+// ---------------------------------------------------------------------------
+
+/** The marker carried in every approval subject line, so replies can be found again. */
+const REPLY_MARKER = 'FKR';
+
+/** Short, human-tolerable handle for a pending token. */
+function replyTag_(token) { return REPLY_MARKER + ' ' + String(token).slice(0, 8); }
+
+/** Words that mean "send it as it is" rather than being a rewrite. */
+const APPROVE_WORDS = /^(ok|okay|واه|اه|أه|ايه|صيفط|سير|زين|مزيان|oui|yes|d|صافي|wa|waha|ah)\W*$/i;
+const REJECT_WORDS = /^(no|non|لا|ماشي|رفض|حيد|متصيفطش|ma|la)\W*$/i;
+
+/**
+ * Reads replies the owner sent to approval emails and acts on them.
+ *
+ * Only threads whose subject carries the marker are ever opened, and only their newest
+ * message is read — this never walks the rest of the inbox. Runs on every poll.
+ */
+function checkEmailReplies_() {
+  const threads = GmailApp.search(
+    'is:unread newer_than:7d subject:' + REPLY_MARKER, 0, 25);
+  if (!threads.length) return;
+
+  const props = PropertiesService.getScriptProperties();
+
+  for (const thread of threads) {
+    try {
+      const msgs = thread.getMessages();
+      if (msgs.length < 2) continue;                 // no reply yet, just our own email
+
+      const short = (thread.getFirstMessageSubject().match(
+        new RegExp(REPLY_MARKER + '\\s+([a-z0-9]{8})', 'i')) || [])[1];
+      if (!short) continue;
+
+      // Keys are re-read per thread: an earlier thread in this same batch may have
+      // consumed one, and a stale list would resolve to a property that no longer exists.
+      const key = props.getKeys().find(k =>
+        k.indexOf(PROP.PENDING_PREFIX) === 0 &&
+        k.slice(PROP.PENDING_PREFIX.length).toLowerCase().indexOf(short.toLowerCase()) === 0);
+      const raw = key && props.getProperty(key);
+      if (!raw) { thread.markRead(); continue; }     // already handled, or expired
+
+      const body = stripQuoted_(msgs[msgs.length - 1].getPlainBody());
+      props.deleteProperty(key);                     // single-use, same as the buttons
+      applyOwnerReply_(JSON.parse(raw), body);
+      thread.markRead();
+    } catch (err) {
+      notifyError_('emailReply', err, thread.getFirstMessageSubject());
+      thread.markRead();                             // never re-process a poisoned thread
+    }
+  }
+}
+
+/**
+ * Everything after the quoted original is Gmail's doing, not the owner's. Cuts at the
+ * first quote marker or attribution line and keeps what he actually typed.
+ */
+function stripQuoted_(body) {
+  const lines = String(body || '').split('\n');
+  const out = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.indexOf('>') === 0) break;
+    // "On 31 July 2026 ... wrote:" and its Arabic and French equivalents.
+    if (/^(On .*wrote:|Le .*a écrit ?:|في .*كتب)/.test(t)) break;
+    if (/^-{2,}\s*(Original Message|Forwarded message)/i.test(t)) break;
+    out.push(line);
+  }
+  return out.join('\n').trim();
+}
+
+/** Post what the owner wrote back — or the draft itself if he just said yes. */
+function applyOwnerReply_(pending, body) {
+  if (!body || REJECT_WORDS.test(body)) {
+    updateSheetStatus_(pending.row, 'مرفوض — ما تنشرش');
+    countReview_(false);
+    return;
+  }
+
+  const approvedAsIs = APPROVE_WORDS.test(body);
+  const finalText = approvedAsIs ? pending.reply : body;
+
+  if (getSetting_('DRAFT_ONLY_MODE')) {
+    updateSheetStatus_(pending.row, approvedAsIs
+      ? 'موافق عليه — ولكن ما تصيفطش (وضع الاختبار)'
+      : 'تعدل — ولكن ما تصيفطش (وضع الاختبار)');
+  } else {
+    deliver_(pending.msg, { reply: finalText, lead: pending.lead });
+    updateSheetStatus_(pending.row, approvedAsIs ? 'تمت الموافقة وتصيفط' : 'تعدل وتصيفط');
+  }
+
+  if (!approvedAsIs) recordCorrection_(pending.reply, finalText);
+  countReview_(!approvedAsIs);
+}
+
+// ---------------------------------------------------------------------------
+// LEARNING FROM THE CORRECTIONS
+// ---------------------------------------------------------------------------
+
+const MAX_CORRECTIONS = 10;
+
+/** Keeps the owner's rewrite next to the draft it replaced. Oldest falls off at 10. */
+function recordCorrection_(draft, fixed) {
+  if (!draft || !fixed || draft.trim() === fixed.trim()) return;
+  const props = PropertiesService.getScriptProperties();
+  let list = [];
+  try { list = JSON.parse(props.getProperty(PROP.CORRECTIONS) || '[]'); } catch (e) { list = []; }
+  list.push({ draft: String(draft).slice(0, 400), fixed: String(fixed).slice(0, 400),
+              at: new Date().toISOString() });
+  props.setProperty(PROP.CORRECTIONS,
+    JSON.stringify(list.slice(-MAX_CORRECTIONS)));
+}
+
+/**
+ * The corrections, formatted for the prompt. Deliberately appended to the user turn
+ * rather than the system prompt: the system prompt is cached and identical on every
+ * call, and editing it here would throw that cache away for the sake of a few hundred
+ * tokens.
+ */
+function correctionsBlock_() {
+  let list = [];
+  try {
+    list = JSON.parse(
+      PropertiesService.getScriptProperties().getProperty(PROP.CORRECTIONS) || '[]');
+  } catch (e) { return ''; }
+  if (!list.length) return '';
+
+  const lines = list.map(c =>
+    '- كتبتي: ' + c.draft + '\n  المعلم صححها ل: ' + c.fixed);
+  return '\n\n[تصحيحات المعلم على ردود سابقة — ما تعاودش نفس الغلطة]\n' + lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// THE FIRST 30 DRAFTS
+// ---------------------------------------------------------------------------
+
+/**
+ * Counts a decided draft and, at AUTO_ENABLE_AFTER, lets the system start posting.
+ *
+ * The owner asked for this to flip on its own. The count and the edit rate go out with
+ * it, because they are the part worth arguing with: thirty drafts where he rewrote
+ * twenty is not thirty drafts he agreed with, and the email says so plainly.
+ */
+function countReview_(wasEdited) {
+  const props = PropertiesService.getScriptProperties();
+  const reviewed = Number(props.getProperty(PROP.REVIEWED) || 0) + 1;
+  const edited = Number(props.getProperty(PROP.EDITED) || 0) + (wasEdited ? 1 : 0);
+  props.setProperty(PROP.REVIEWED, String(reviewed));
+  props.setProperty(PROP.EDITED, String(edited));
+
+  if (reviewed !== CONFIG.AUTO_ENABLE_AFTER) return;   // exactly once, not every time after
+  setSetting_('DRAFT_ONLY_MODE', false);
+  setSetting_('ALWAYS_ASK_APPROVAL', false);
+
+  const rate = Math.round((edited / reviewed) * 100);
+  try {
+    GmailApp.sendEmail(CONFIG.OWNER_EMAIL,
+      '✅ ' + reviewed + ' مسودة — النظام ولا كيجاوب بوحدو',
+      '', {
+        htmlBody:
+          '<div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px">' +
+          '<h2>قريتي ' + reviewed + ' مسودة</h2>' +
+          '<p>عدلتي <b>' + edited + '</b> منهم — ' + rate + '%.</p>' +
+          (rate > 30
+            ? '<p style="background:#fef2f2;border-right:4px solid #dc2626;padding:10px;' +
+              'border-radius:6px">عدلتي كثر من الثلث. حبس النظام من اللوحة وعاود شوف ' +
+              'الردود قبل ما تخليه يمشي بوحدو.</p>'
+            : '<p style="background:#ecfdf5;padding:10px;border-radius:6px">نسبة ' +
+              'التعديل قليلة — الردود ولاو مزيانين.</p>') +
+          '<p>من دابا كيجاوب بوحدو على الأسئلة العادية. <b>الثمن، الشكاية، ' +
+          'والمواضيع اللي ماعندناش فيها معلومة كيبقاو كيتسناو موافقتك.</b></p>' +
+          '<p>باش تحبسو: اللوحة → حبس.</p></div>',
+        name: 'فيها خير — نظام الرد الآلي' });
+  } catch (err) {
+    Logger.log('Auto-enable notice failed: ' + err);
   }
 }
 
@@ -891,14 +1207,20 @@ function sendApprovalEmail_(msg, ai, token) {
         '<a href="' + reject + '" style="background:#dc2626;color:#fff;padding:12px 24px;' +
           'text-decoration:none;border-radius:6px">ارفض</a>' +
       '</p>' +
+      '<p style="background:#eff6ff;border-right:4px solid #2563eb;padding:10px;' +
+        'border-radius:6px;margin-top:18px">✏️ <b>ولا بغيتي تبدل الرد:</b> رد على هاد ' +
+        'الإيميل بالنص ديالك، وهو اللي غادي يتصيفط. التصحيح ديالك كيتحفظ باش ما يعاودش ' +
+        'نفس الغلطة.</p>' +
       '<p style="margin-top:18px"><a href="' +
         trackedWhatsappLink_(msg.author, 'approval-email') + '">' +
         'ولا بدا معاه الحديث ديريكت ف الواتساب ←</a></p>' +
       '<p style="color:#9ca3af;font-size:12px;margin-top:22px">الروابط كيخدموا مرة وحدة.</p>' +
     '</div>';
 
+  // The tag is what lets a reply be matched back to this draft. Keep it in the subject.
   GmailApp.sendEmail(CONFIG.OWNER_EMAIL,
-    (ai.lead === 'ساخن' ? '🔥 ' : '') + where + ' — @' + msg.author,
+    (ai.lead === 'ساخن' ? '🔥 ' : '') + where + ' — @' + msg.author +
+      '  ·  ' + replyTag_(token),
     ai.reply,
     { htmlBody: html, name: 'فيها خير — نظام الرد الآلي' });
 }
@@ -1091,7 +1413,11 @@ function installTrigger() {
     const f = t.getHandlerFunction();
     if (f === 'checkEverything' || f === 'dailySummary') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('checkEverything').timeBased().everyMinutes(15).create();
+  // Five minutes is the compromise between a customer waiting and the 90 min/day
+  // trigger-runtime quota on a consumer Google account: 288 runs a day, so a run has to
+  // average under ~18 seconds. A run with nothing new in it takes a few, and only the
+  // busy ones cost real time. Check statusCheck() if you ever see quota warnings.
+  ScriptApp.newTrigger('checkEverything').timeBased().everyMinutes(5).create();
   if (CONFIG.DAILY_SUMMARY) {
     ScriptApp.newTrigger('dailySummary').timeBased().atHour(20).everyDays(1).create();
   }

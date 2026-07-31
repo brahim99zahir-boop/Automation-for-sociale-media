@@ -110,7 +110,12 @@ const Instagram = {
 
     // "me" resolves to the account the token was issued for. The numeric igUserId is
     // still kept in Config for reference and for the private-reply call below.
-    const media = httpGetJson_(IG_GRAPH + 'me/media?fields=id&limit=' +
+    //
+    // The caption and thumbnail cost nothing extra here — same call, more fields — and
+    // they are what lets a reply to "شحال هادا؟" know what "هادا" is. For a Reel,
+    // media_url is the video file, so thumbnail_url is the one worth carrying.
+    const media = httpGetJson_(IG_GRAPH +
+      'me/media?fields=id,caption,media_type,media_url,thumbnail_url&limit=' +
       CONFIG.MEDIA_TO_SCAN + '&access_token=' + encodeURIComponent(token)).data || [];
 
     const bodies = httpGetAllJson_(media.map(m => IG_GRAPH + m.id +
@@ -124,6 +129,8 @@ const Instagram = {
         out.push({
           id: c.id, text: c.text, author: c.username || 'unknown',
           platform: 'instagram', postId: media[i].id, kind: 'comment',
+          postCaption: media[i].caption || '',
+          postImage: media[i].thumbnail_url || media[i].media_url || '',
         });
       }
     });
@@ -137,20 +144,26 @@ const Instagram = {
     const out = [];
 
     // Instagram DM threads live on the linked Page's conversations edge.
+    // `attachments` is what makes voice notes visible at all. Without it a customer who
+    // records instead of typing arrives as an empty message and is silently dropped.
     const url = IG_GRAPH +
       'me/conversations?platform=instagram&fields=participants,messages.limit(1)' +
-      '{id,message,from,created_time}&limit=20&access_token=' + encodeURIComponent(token);
+      '{id,message,from,created_time,attachments}&limit=20&access_token=' +
+      encodeURIComponent(token);
 
     const threads = httpGetJson_(url).data || [];
     for (const t of threads) {
       const msgs = (t.messages && t.messages.data) || [];
       for (const m of msgs) {
         // Skip our own messages — only reply to what the customer sent.
-        if (!m.message || (m.from && m.from.id === cfg.igUserId)) continue;
+        if (m.from && m.from.id === cfg.igUserId) continue;
+        const voice = voiceAttachment_(m);
+        if (!m.message && !voice) continue;
         out.push({
-          id: m.id, text: m.message,
+          id: m.id, text: m.message || '',
           author: (m.from && (m.from.username || m.from.name)) || 'unknown',
           platform: 'instagram', threadId: (m.from && m.from.id) || t.id, kind: 'dm',
+          isVoice: !!voice, voiceUrl: voice || '',
         });
       }
     }
@@ -184,11 +197,38 @@ const Instagram = {
 // FACEBOOK  — comments ✅  DMs ✅
 // ===========================================================================
 
+/**
+ * Facebook needs its own Page token. The Instagram one here came from the Instagram-login
+ * route and is only valid against graph.instagram.com, so reusing it produces an auth
+ * error indistinguishable from an expired token. Falls back to it anyway, for the case
+ * where both were set up through the Facebook route on a single token.
+ */
+/**
+ * The URL of an audio attachment on a message, or '' if there isn't one. Meta labels
+ * voice notes as type "audio"; anything else (image, video, share) is not our business
+ * here and comes back empty.
+ */
+function voiceAttachment_(m) {
+  const atts = (m && m.attachments && m.attachments.data) || [];
+  for (const a of atts) {
+    if (a.type !== 'audio') continue;
+    const url = (a.payload && a.payload.url) || a.url || '';
+    if (url) return url;
+  }
+  return '';
+}
+
+function fbToken_() {
+  return hasSecret_(PROP.FACEBOOK_TOKEN)
+    ? getSecret_(PROP.FACEBOOK_TOKEN)
+    : getSecret_(PROP.META_TOKEN);
+}
+
 const Facebook = {
   fetchComments() {
     const cfg = PLATFORMS.facebook;
     if (!cfg.pageId) return [];
-    const token = getSecret_(PROP.META_TOKEN);
+    const token = fbToken_();
     const out = [];
 
     const posts = httpGetJson_(GRAPH + cfg.pageId + '/posts?fields=id&limit=' +
@@ -217,7 +257,7 @@ const Facebook = {
   fetchDMs() {
     const cfg = PLATFORMS.facebook;
     if (!cfg.dm || !cfg.pageId) return [];
-    const token = getSecret_(PROP.META_TOKEN);
+    const token = fbToken_();
     const out = [];
 
     const url = GRAPH + cfg.pageId +
@@ -241,7 +281,7 @@ const Facebook = {
 
   postReply(commentId, text) {
     return httpPost_(GRAPH + commentId + '/comments',
-      { message: text, access_token: getSecret_(PROP.META_TOKEN) });
+      { message: text, access_token: fbToken_() });
   },
 
   sendDM(recipientId, text) {
@@ -249,7 +289,7 @@ const Facebook = {
       recipient: JSON.stringify({ id: recipientId }),
       message: JSON.stringify({ text: text }),
       messaging_type: 'RESPONSE',
-      access_token: getSecret_(PROP.META_TOKEN),
+      access_token: fbToken_(),
     });
   },
 };

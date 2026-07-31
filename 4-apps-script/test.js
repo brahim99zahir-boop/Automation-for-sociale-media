@@ -326,8 +326,9 @@ ok('190x160 adds nothing', quote_(190, 160, 'العادي', false).twoPanel === 
 // Rates per type.
 ok('مضلم uses 650', quote_(100, 100, 'المضلم', false).screen === 650);
 ok('مزدوج uses 750', quote_(100, 100, 'المزدوج', false).screen === 750);
-// Agadir gets installation and no delivery; everywhere else gets delivery.
-ok('agadir total = screen + install', quote_(200, 120, 'العادي', true).total === 1320 + 150,
+// Agadir pays installation ON TOP of delivery; elsewhere it is delivery only.
+ok('agadir = screen + install + delivery',
+   quote_(200, 120, 'العادي', true).total === 1320 + 150 + 60,
    quote_(200, 120, 'العادي', true).total);
 ok('outside agadir = screen + delivery', quote_(200, 120, 'العادي', false).total === 1320 + 60,
    quote_(200, 120, 'العادي', false).total);
@@ -356,10 +357,104 @@ ok('casa is not agadir', mentionsAgadir_('ana f casa') === false);
 // The block handed to the model must carry the finished number, never an expression
 // for it to evaluate.
 const blk = priceBlock_('شرجم 200 على 120 وانا من اكادير');
-ok('price block carries the total', blk.indexOf('1470') !== -1, blk);
+ok('price block carries the total', blk.indexOf('1530') !== -1, blk);
 ok('price block flags agadir install', blk.indexOf('التركيب') !== -1);
-ok('price block omits delivery in agadir', blk.indexOf('التوصيل') === -1);
+ok('price block still charges delivery in agadir', blk.indexOf('التوصيل') !== -1);
 ok('no measurements -> empty block', priceBlock_('بشحال؟') === '');
+
+console.log('\n== escalation, post context, voice, tokens ==');
+ok('hot lead escalates', worthEscalating_({ lead: 'ساخن', client_type: 'سؤال عام' }));
+ok('complaint escalates', worthEscalating_({ lead: 'بارد', client_type: 'شكوى' }));
+ok('buyer escalates', worthEscalating_({ lead: 'دافئ', client_type: 'مهتم بالشراء' }));
+ok('cold general question does not', !worthEscalating_({ lead: 'بارد', client_type: 'سؤال عام' }));
+
+ok('visual comment wants the image', refersToSomethingVisual_('شنو هاد اللون؟'));
+ok('arabizi visual comment too', refersToSomethingVisual_('hada chhal?'));
+ok('plain price question does not', !refersToSomethingVisual_('بشحال الموستكير؟'));
+ok('no url -> no image block', fetchImageBlock_('') === null);
+
+ok('audio attachment found',
+   voiceAttachment_({ attachments: { data: [{ type: 'audio', payload: { url: 'u' } }] } }) === 'u');
+ok('image attachment ignored',
+   voiceAttachment_({ attachments: { data: [{ type: 'image', payload: { url: 'u' } }] } }) === '');
+ok('no attachments -> empty', voiceAttachment_({}) === '');
+
+H.props['FACEBOOK_PAGE_TOKEN'] = 'fb-token';
+H.props['META_ACCESS_TOKEN'] = 'ig-token';
+ok('facebook uses its own token', fbToken_() === 'fb-token');
+delete H.props['FACEBOOK_PAGE_TOKEN'];
+ok('falls back to the instagram token', fbToken_() === 'ig-token');
+
+console.log('\n== reviewing by email reply ==');
+ok('quoted text stripped',
+   stripQuoted_('هادا الرد ديالي\n\n> الرد المقترح\n> سلام') === 'هادا الرد ديالي');
+ok('attribution line stripped',
+   stripQuoted_('صافي\nOn 31 July 2026 at 10:00, me wrote:\nold') === 'صافي');
+ok('plain body survives', stripQuoted_('غير هادشي') === 'غير هادشي');
+
+// An edit replaces the draft, is remembered, and counts as a review.
+delete H.props['OWNER_CORRECTIONS'];
+H.props['REVIEWED_COUNT'] = '0';
+H.props['EDITED_COUNT'] = '0';
+H.props['RUNTIME_SETTINGS'] = JSON.stringify({ DRAFT_ONLY_MODE: true });
+H.props['pending_abcd1234-ffff-0000-1111-222222222222'] = JSON.stringify({
+  msg: { id: 'c1', text: 'بشحال؟', author: 'zbon', platform: 'instagram', kind: 'comment' },
+  reply: 'الثمن 550 درهم للمتر', lead: 'دافئ', row: 2,
+  created: new Date().toISOString(),
+});
+global.__THREADS = [{
+  subject: 'إنستغرام — تعليق — @zbon  ·  FKR abcd1234',
+  bodies: ['(the draft email)', 'الثمن ديال العادي 550 درهم للمتر المربع\n\n> الرد المقترح'],
+}];
+checkEmailReplies_();
+ok('pending consumed', !('pending_abcd1234-ffff-0000-1111-222222222222' in H.props));
+ok('thread marked read', global.__THREADS[0].read === true);
+ok('correction stored', JSON.parse(H.props['OWNER_CORRECTIONS']).length === 1);
+ok('correction keeps the owner wording',
+   JSON.parse(H.props['OWNER_CORRECTIONS'])[0].fixed.indexOf('المربع') !== -1);
+ok('counted as reviewed', H.props['REVIEWED_COUNT'] === '1');
+ok('counted as edited', H.props['EDITED_COUNT'] === '1');
+ok('corrections reach the prompt', correctionsBlock_().indexOf('المربع') !== -1);
+
+// A bare "waha" approves the draft as written — not a correction.
+H.props['pending_beef5678-ffff-0000-1111-222222222222'] = JSON.stringify({
+  msg: { id: 'c2', text: 'بشحال؟', author: 'zbon2', platform: 'instagram', kind: 'comment' },
+  reply: 'مرحبا', lead: 'بارد', row: 3, created: new Date().toISOString(),
+});
+global.__THREADS = [{ subject: 'تعليق — @zbon2  ·  FKR beef5678', bodies: ['x', 'واه'] }];
+checkEmailReplies_();
+ok('approval word is not a correction',
+   JSON.parse(H.props['OWNER_CORRECTIONS']).length === 1);
+ok('approval still counts', H.props['REVIEWED_COUNT'] === '2');
+ok('approval is not an edit', H.props['EDITED_COUNT'] === '1');
+
+// Unknown tag must not throw or invent a pending row.
+global.__THREADS = [{ subject: 'تعليق — @x  ·  FKR deadbeef', bodies: ['x', 'شي حاجة'] }];
+checkEmailReplies_();
+ok('unknown tag marked read, nothing sent', global.__THREADS[0].read === true);
+global.__THREADS = [];
+
+ok('corrections capped at 10', (() => {
+  for (let i = 0; i < 15; i++) recordCorrection_('draft ' + i, 'fixed ' + i);
+  return JSON.parse(H.props['OWNER_CORRECTIONS']).length === 10;
+})());
+ok('identical rewrite is not a correction', (() => {
+  const before = JSON.parse(H.props['OWNER_CORRECTIONS']).length;
+  recordCorrection_('same', 'same');
+  return JSON.parse(H.props['OWNER_CORRECTIONS']).length === before;
+})());
+
+console.log('\n== the first 30 drafts ==');
+H.props['REVIEWED_COUNT'] = String(CONFIG.AUTO_ENABLE_AFTER - 1);
+H.props['EDITED_COUNT'] = '2';
+H.props['RUNTIME_SETTINGS'] = JSON.stringify({ DRAFT_ONLY_MODE: true, ALWAYS_ASK_APPROVAL: true });
+const mailsBefore = __EMAILS.length;
+countReview_(false);
+ok('draft mode released at 30', getSetting_('DRAFT_ONLY_MODE') === false);
+ok('blanket approval released at 30', getSetting_('ALWAYS_ASK_APPROVAL') === false);
+ok('owner told', __EMAILS.length === mailsBefore + 1);
+countReview_(false);
+ok('does not re-fire past 30', __EMAILS.length === mailsBefore + 1);
 
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });

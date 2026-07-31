@@ -169,10 +169,49 @@ You'll end with two values:
 - a **long-lived Page access token** → paste into `metaToken` in `setSecrets()`, Run, then
   delete it from the code again
 
+### Facebook needs a second token
+
+The Instagram token above came from the Instagram-login route, so it only works against
+`graph.instagram.com`. Facebook Pages are a different host and a different login route,
+and the same string will not work for both — it fails with an auth error that looks
+exactly like an expired token.
+
+For Facebook you need:
+
+- the **Page ID** → `business.facebook.com` → Settings → Business assets → Pages, or the
+  Page itself → About → Page transparency. Paste into `pageId` in `Config.gs`.
+- a **Page access token** from the Facebook-login route → paste into `facebookToken` in
+  `setSecrets()`, Run, then delete it from the code again.
+
+Leave both blank and Facebook simply stays off; Instagram is unaffected.
+
 ## Step 8 — Turn on the timer
 
-Choose **`installTrigger`** → **Run**. The system now checks for new comments every 15 minutes,
+Choose **`installTrigger`** → **Run**. The system now checks for new comments every 5 minutes,
 24/7, whether or not your PC is on.
+
+Google will ask for **Gmail access** here. That is for reading your replies to the approval
+emails — see the next step. It only ever opens threads whose subject carries the `FKR` tag,
+and only their newest message.
+
+## Step 9 — The first 30 drafts
+
+Nothing is posted publicly at first. Every reply arrives as an email with the customer's
+message and the suggested answer, and three ways to deal with it:
+
+- **وافق وصيفط** — send it as written
+- **ارفض** — bin it
+- **just reply to the email** — whatever you type is what gets posted instead
+
+The third one is the useful one. Your rewrite is stored, and the last ten corrections go
+into every later prompt as examples, so the same wording mistake stops coming back.
+
+After **30 reviewed drafts** the system turns off draft mode and blanket approval by itself
+and emails you the count along with how many you had to rewrite. If that rate is high, stop
+it from the dashboard — thirty drafts you rewrote is not thirty drafts you agreed with.
+
+Even after that, three things keep waiting for you every time: **price questions,
+complaints, and any topic with no confirmed answer.**
 
 ---
 

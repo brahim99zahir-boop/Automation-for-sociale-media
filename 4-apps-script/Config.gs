@@ -20,8 +20,16 @@ const CONFIG = {
   SHEET_NAME: 'العملاء',
 
   // ---- Claude ----
+  // Haiku answers everything and classifies the message in the same call. When it comes
+  // back as a buyer or a complaint, the reply is written again on the stronger model —
+  // about one message in ten, which is where the money is worth spending.
   CLAUDE_MODEL: 'claude-haiku-4-5',
+  CLAUDE_MODEL_SMART: 'claude-sonnet-5',
   ANTHROPIC_VERSION: '2023-06-01',
+
+  // How many drafts you review before the system starts posting on its own. Price
+  // questions, complaints and unverified topics keep waiting for you even after that.
+  AUTO_ENABLE_AFTER: 30,
 
   // ---- Safety switches ----
   // While true, NOTHING is ever posted or sent publicly — replies are drafted, logged
@@ -112,7 +120,13 @@ const UNVERIFIED_TOPICS = [
 /** Property keys (internal — no need to change). */
 const PROP = {
   ANTHROPIC_KEY: 'ANTHROPIC_API_KEY',
+  // Instagram. Issued through "API setup with Instagram login", so it only works
+  // against graph.instagram.com — see META-SETUP.md.
   META_TOKEN: 'META_ACCESS_TOKEN',
+  // Facebook Pages need their own Page token from the Facebook-login route. The same
+  // string will not work for both; if this is unset the Instagram token is tried, which
+  // fails with an auth error that looks exactly like an expired token.
+  FACEBOOK_TOKEN: 'FACEBOOK_PAGE_TOKEN',
   YOUTUBE_TOKEN: 'YOUTUBE_ACCESS_TOKEN',
   TIKTOK_TOKEN: 'TIKTOK_ACCESS_TOKEN',
   // Google Cloud Speech-to-Text, for voice notes. Optional — the rest works without it.
@@ -129,6 +143,14 @@ const PROP = {
   DASHBOARD_TOKEN: 'DASHBOARD_TOKEN',
   // One key per day: clicks_2026-07-28 -> number of WhatsApp link opens.
   CLICKS_PREFIX: 'clicks_',
+
+  // The owner's own rewrites: [{draft, fixed, at}], newest last, last 10 kept. Fed back
+  // into every prompt so the same wording mistake isn't made twice.
+  CORRECTIONS: 'OWNER_CORRECTIONS',
+  // How many drafts have been decided on, and how many of those he had to rewrite.
+  // At AUTO_ENABLE_AFTER the system stops asking about the routine ones.
+  REVIEWED: 'REVIEWED_COUNT',
+  EDITED: 'EDITED_COUNT',
 };
 
 /**
@@ -139,19 +161,22 @@ function setSecrets() {
   const props = PropertiesService.getScriptProperties();
 
   const anthropicKey = '';   // Anthropic API key
-  const metaToken = '';      // Meta long-lived Page token (Instagram + Facebook)
+  const metaToken = '';      // Instagram token (Instagram-login route)
+  const facebookToken = '';  // Facebook PAGE token (Facebook-login route) — a DIFFERENT string
   const youtubeToken = '';   // Google OAuth access token (YouTube) — optional
   const tiktokToken = '';    // TikTok Business API token — optional
   const googleSttKey = '';   // Google Cloud Speech-to-Text API key — optional, voice notes
 
   if (anthropicKey) props.setProperty(PROP.ANTHROPIC_KEY, anthropicKey);
   if (metaToken) props.setProperty(PROP.META_TOKEN, metaToken);
+  if (facebookToken) props.setProperty(PROP.FACEBOOK_TOKEN, facebookToken);
   if (youtubeToken) props.setProperty(PROP.YOUTUBE_TOKEN, youtubeToken);
   if (tiktokToken) props.setProperty(PROP.TIKTOK_TOKEN, tiktokToken);
   if (googleSttKey) props.setProperty(PROP.GOOGLE_STT_KEY, googleSttKey);
 
   Logger.log('Anthropic: ' + !!props.getProperty(PROP.ANTHROPIC_KEY));
-  Logger.log('Meta:      ' + !!props.getProperty(PROP.META_TOKEN));
+  Logger.log('Instagram: ' + !!props.getProperty(PROP.META_TOKEN));
+  Logger.log('Facebook:  ' + !!props.getProperty(PROP.FACEBOOK_TOKEN));
   Logger.log('YouTube:   ' + !!props.getProperty(PROP.YOUTUBE_TOKEN));
   Logger.log('TikTok:    ' + !!props.getProperty(PROP.TIKTOK_TOKEN));
   Logger.log('GoogleSTT: ' + !!props.getProperty(PROP.GOOGLE_STT_KEY));
