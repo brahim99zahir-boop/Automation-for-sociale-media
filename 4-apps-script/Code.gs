@@ -1679,10 +1679,24 @@ function diagnoseInstagram() {
   posts.forEach(p => { if (p.comments_count) withComments++; });
   Logger.log('>>> ' + withComments + ' of them report having comments.');
 
-  if (posts.length) {
-    Logger.log('=== comments on the newest post ===');
-    show('comments', IG_GRAPH + posts[0].id +
+  // Test a post that Instagram SAYS has comments. Picking the newest proves nothing when
+  // the newest happens to have none.
+  const withSome = posts.filter(p => p.comments_count > 0);
+  if (withSome.length) {
+    const p = withSome[0];
+    Logger.log('=== comments on a post Instagram says has ' + p.comments_count + ' ===');
+    const body = show('comments', IG_GRAPH + p.id +
       '/comments?fields=id,text,username,timestamp&limit=50' + q);
+    const returned = ((body && body.data) || []).length;
+    Logger.log('>>> Instagram counts ' + p.comments_count + ', the API returned ' + returned + '.');
+    if (p.comments_count > 0 && returned === 0) {
+      Logger.log('>>> MISMATCH. The comments are there but this token cannot read them. ' +
+        'That is a missing permission, not a bug: instagram_business_manage_comments ' +
+        'was not granted when the token was created. Meta returns an empty list for a ' +
+        'scope you do not have instead of an error, which is why nothing looked broken.');
+    }
+  } else {
+    Logger.log('=== none of the visible posts report any comments ===');
   }
 
   Logger.log('=== each inbox folder ===');
