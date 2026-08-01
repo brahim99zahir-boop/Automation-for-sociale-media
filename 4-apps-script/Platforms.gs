@@ -149,24 +149,16 @@ const Instagram = {
     // Instagram DM threads live on the linked Page's conversations edge.
     // `attachments` is what makes voice notes visible at all. Without it a customer who
     // records instead of typing arrives as an empty message and is silently dropped.
-    const url = IG_GRAPH + 'me/conversations?platform=instagram&' +
-      fields_('participants,messages.limit(1){id,message,from,created_time,attachments}') +
-      '&limit=20&access_token=' + encodeURIComponent(token);
-
-    const threads = httpGetJson_(url).data || [];
-    for (const t of threads) {
-      const msgs = (t.messages && t.messages.data) || [];
-      for (const m of msgs) {
-        // Skip our own messages — only reply to what the customer sent.
-        if (m.from && m.from.id === cfg.igUserId) continue;
-        const voice = voiceAttachment_(m);
-        if (!m.message && !voice) continue;
-        out.push({
-          id: m.id, text: m.message || '',
-          author: (m.from && (m.from.username || m.from.name)) || 'unknown',
-          platform: 'instagram', threadId: (m.from && m.from.id) || t.id, kind: 'dm',
-          isVoice: !!voice, voiceUrl: voice || '',
-        });
+    const seenInRun = {};
+    for (const folder of DM_FOLDERS) {
+      const url = IG_GRAPH + 'me/conversations?platform=instagram&folder=' + folder + '&' +
+        fields_('participants,messages.limit(1){id,message,from,created_time,attachments}') +
+        '&limit=20&access_token=' + encodeURIComponent(token);
+      try {
+        threadsToMessages_(httpGetJson_(url).data, 'instagram', cfg.igUserId, out, seenInRun);
+      } catch (err) {
+        // One folder being unavailable must not cost us the others.
+        Logger.log('Instagram folder "' + folder + '" skipped: ' + err);
       }
     }
     return out;
@@ -225,6 +217,46 @@ function fields_(spec) {
  * catching up on a backlog, far more. Toggled from the sheet menu rather than the code,
  * so it can be switched off the moment the sheet stops filling.
  */
+/**
+ * Inbox folders to read.
+ *
+ * Meta defaults the conversations edge to the primary inbox alone. Everything from
+ * someone who does not follow the account lands in the other folder — which on Instagram
+ * is the General tab and the message Requests — so the default silently skips the people
+ * most likely to be new customers.
+ *
+ * `spam` is left out on purpose: answering it is how a business account gets reported.
+ *
+ * UNVERIFIED against the live Instagram-login host. The folder parameter is documented
+ * for Page conversations; whether graph.instagram.com honours it has not been checked
+ * with a real token. A folder it rejects is skipped and logged, so the worst case is the
+ * behaviour that already existed rather than a broken fetch.
+ */
+const DM_FOLDERS = ['inbox', 'other'];
+
+/**
+ * Turns one conversations payload into messages. Shared by both platforms because the
+ * shape is the same; only the host and the id of "us" differ.
+ */
+function threadsToMessages_(threads, platform, ownId, out, seenInRun) {
+  for (const t of (threads || [])) {
+    for (const m of ((t.messages && t.messages.data) || [])) {
+      if (m.from && m.from.id === ownId) continue;      // our own replies
+      if (!m.id || seenInRun[m.id]) continue;           // same thread in two folders
+      const voice = voiceAttachment_(m);
+      if (!m.message && !voice) continue;
+      seenInRun[m.id] = true;
+      out.push({
+        id: m.id, text: m.message || '',
+        author: (m.from && (m.from.username || m.from.name)) || 'unknown',
+        platform: platform, threadId: (m.from && m.from.id) || t.id, kind: 'dm',
+        createdAt: m.created_time || '',
+        isVoice: !!voice, voiceUrl: voice || '',
+      });
+    }
+  }
+}
+
 function postsToScan_() {
   return getSetting_('BACKLOG_MODE')
     ? CONFIG.BACKLOG_MEDIA_TO_SCAN
@@ -283,20 +315,15 @@ const Facebook = {
     const token = fbToken_();
     const out = [];
 
-    const url = GRAPH + cfg.pageId + '/conversations?' +
-      fields_('participants,messages.limit(1){id,message,from}') +
-      '&limit=20&access_token=' + encodeURIComponent(token);
-
-    const threads = httpGetJson_(url).data || [];
-    for (const t of threads) {
-      const msgs = (t.messages && t.messages.data) || [];
-      for (const m of msgs) {
-        if (!m.message || (m.from && m.from.id === cfg.pageId)) continue;
-        out.push({
-          id: m.id, text: m.message,
-          author: (m.from && m.from.name) || 'unknown',
-          platform: 'facebook', threadId: (m.from && m.from.id) || t.id, kind: 'dm',
-        });
+    const seenInRun = {};
+    for (const folder of DM_FOLDERS) {
+      const url = GRAPH + cfg.pageId + '/conversations?folder=' + folder + '&' +
+        fields_('participants,messages.limit(1){id,message,from,created_time,attachments}') +
+        '&limit=20&access_token=' + encodeURIComponent(token);
+      try {
+        threadsToMessages_(httpGetJson_(url).data, 'facebook', cfg.pageId, out, seenInRun);
+      } catch (err) {
+        Logger.log('Facebook folder "' + folder + '" skipped: ' + err);
       }
     }
     return out;

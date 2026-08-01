@@ -550,7 +550,7 @@ global.__ROUTES = {
 global.__CALLS = [];
 Instagram.fetchDMs();
 Facebook.fetchDMs();
-ok('both DM endpoints were called', global.__CALLS.length === 2, global.__CALLS.length);
+ok('both DM endpoints called, each folder', global.__CALLS.length === 4, global.__CALLS.length);
 ok('no URL contains a raw brace',
    global.__CALLS.every(u => u.indexOf('{') === -1 && u.indexOf('}') === -1),
    global.__CALLS.find(u => u.indexOf('{') !== -1));
@@ -719,6 +719,61 @@ global.adapterFor_ = realAdapterFor;
 
 ok('the backlog switch is in the menu',
    (() => { onOpenMenu(); return __MENU.some(([, fn]) => fn === 'menuToggleBacklog'); })());
+
+console.log('\n== every inbox folder, not just Primary ==');
+// Meta defaults to the primary inbox. Anyone who does not follow the account lands in
+// "other" — General and message Requests on Instagram — which is where new customers are.
+ok('primary is read', DM_FOLDERS.indexOf('inbox') !== -1);
+ok('general and requests are read', DM_FOLDERS.indexOf('other') !== -1);
+ok('spam is deliberately left alone', DM_FOLDERS.indexOf('spam') === -1);
+
+PLATFORMS.instagram.igUserId = 'IG123';
+H.props['META_ACCESS_TOKEN'] = 'tok';
+global.__ROUTES = {
+  'folder=inbox': { body: { data: [{ id: 't1', messages: { data: [
+    { id: 'm1', message: 'من الأساسي', from: { id: 'u1', username: 'zbon1' } }] } }] } },
+  'folder=other': { body: { data: [{ id: 't2', messages: { data: [
+    { id: 'm2', message: 'من الطلبات', from: { id: 'u2', username: 'zbon2' } }] } }] } },
+};
+global.__CALLS = [];
+const dms = Instagram.fetchDMs();
+ok('both folders were requested', global.__CALLS.length === 2, global.__CALLS.length);
+ok('a message from Requests is picked up',
+   dms.some(d => d.text === 'من الطلبات'), JSON.stringify(dms.map(d => d.text)));
+ok('the primary inbox still works', dms.some(d => d.text === 'من الأساسي'));
+ok('two folders, two messages', dms.length === 2, dms.length);
+
+// The same thread appearing in two folders must not be answered twice.
+global.__ROUTES = {
+  'folder=inbox': { body: { data: [{ id: 't1', messages: { data: [
+    { id: 'dup', message: 'وحدة', from: { id: 'u1', username: 'z' } }] } }] } },
+  'folder=other': { body: { data: [{ id: 't1', messages: { data: [
+    { id: 'dup', message: 'وحدة', from: { id: 'u1', username: 'z' } }] } }] } },
+};
+ok('the same message in two folders is returned once',
+   Instagram.fetchDMs().length === 1);
+
+// A folder the host rejects must cost us that folder only, never the whole fetch.
+global.__ROUTES = {
+  'folder=inbox': { body: { data: [{ id: 't1', messages: { data: [
+    { id: 'ok1', message: 'وصلات', from: { id: 'u1', username: 'z' } }] } }] } },
+  'folder=other': { code: 400, body: 'Unsupported get request' },
+};
+const partial = Instagram.fetchDMs();
+ok('a rejected folder is skipped, the rest survive',
+   partial.length === 1 && partial[0].text === 'وصلات', JSON.stringify(partial));
+
+// Our own replies are never treated as customer messages.
+global.__ROUTES = {
+  'folder=inbox': { body: { data: [{ id: 't1', messages: { data: [
+    { id: 'mine', message: 'رد ديالنا', from: { id: 'IG123' } }] } }] } },
+  'folder=other': { body: { data: [] } },
+};
+ok('our own messages are ignored', Instagram.fetchDMs().length === 0);
+
+PLATFORMS.instagram.igUserId = '';
+delete H.props['META_ACCESS_TOKEN'];
+global.__ROUTES = {};
 
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
