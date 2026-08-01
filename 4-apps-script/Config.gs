@@ -144,6 +144,11 @@ const PROP = {
   // One key per day: clicks_2026-07-28 -> number of WhatsApp link opens.
   CLICKS_PREFIX: 'clicks_',
 
+  // One key per error location: errmail_checkEverything -> epoch ms of the last email.
+  // A repeating fault must never be allowed to spend the daily mail quota that the
+  // approval emails need.
+  ERROR_MAIL_PREFIX: 'errmail_',
+
   // The owner's own rewrites: [{draft, fixed, at}], newest last, last 10 kept. Fed back
   // into every prompt so the same wording mistake isn't made twice.
   CORRECTIONS: 'OWNER_CORRECTIONS',

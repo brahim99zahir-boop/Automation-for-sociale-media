@@ -564,6 +564,44 @@ PLATFORMS.facebook.pageId = '';
 delete H.props['META_ACCESS_TOKEN'];
 global.__ROUTES = {};
 
+console.log('\n== a repeating fault must not eat the mail quota ==');
+// A consumer account gets 100 emails a day. The 5-minute timer fires 288 times, so an
+// unthrottled error notifier spends the whole quota and the approval emails — the point
+// of the system — stop going out. This is what actually happened.
+Object.keys(H.props).forEach(k => { if (k.indexOf('errmail_') === 0) delete H.props[k]; });
+let mailsWas = __EMAILS.length;
+for (let i = 0; i < 50; i++) notifyError_('instagram/fetchDMs', 'boom', '');
+ok('50 identical errors send one email', __EMAILS.length === mailsWas + 1,
+   __EMAILS.length - mailsWas);
+
+// A different fault is still worth hearing about immediately.
+mailsWas = __EMAILS.length;
+notifyError_('checkEverything', 'other', '');
+ok('a different location still emails', __EMAILS.length === mailsWas + 1);
+
+// Once the hour is up it reports again, so a fault that never stops is not hidden forever.
+H.props['errmail_instagram_fetchDMs'] = String(Date.now() - (61 * 60 * 1000));
+mailsWas = __EMAILS.length;
+notifyError_('instagram/fetchDMs', 'boom', '');
+ok('reports again after an hour', __EMAILS.length === mailsWas + 1);
+
+// The draft must survive the mail failing, and say so where he can see it.
+const realSend = GmailApp.sendEmail;
+GmailApp.sendEmail = () => { throw new Error('Service invoked too many times for one day: email.'); };
+const rowQ = logToSheet_(
+  { id: 'q1', text: 'بشحال؟', author: 'zbon', platform: 'instagram', kind: 'comment' },
+  { reply: 'draft', client_type: 'سؤال عن الثمن', lead: 'دافئ' }, 'بانتظار موافقتك');
+let threw = false;
+try {
+  sendApprovalEmail_({ id: 'q1', text: 'x', author: 'zbon', platform: 'instagram', kind: 'comment' },
+                     { reply: 'draft', client_type: 'سؤال عن الثمن', lead: 'دافئ' }, 'tok123');
+} catch (e) { threw = true; }
+ok('a blown quota does surface as an exception', threw);
+updateSheetStatus_(rowQ, 'مسودة واجدة — الإيميل ما مشاش. شوفها هنا');
+ok('the sheet says the email did not go',
+   H.SHEETDATA[rowQ - 1][8].indexOf('الإيميل ما مشاش') !== -1, H.SHEETDATA[rowQ - 1][8]);
+GmailApp.sendEmail = realSend;
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

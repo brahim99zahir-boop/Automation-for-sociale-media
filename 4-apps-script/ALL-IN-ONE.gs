@@ -158,6 +158,11 @@ const PROP = {
   // One key per day: clicks_2026-07-28 -> number of WhatsApp link opens.
   CLICKS_PREFIX: 'clicks_',
 
+  // One key per error location: errmail_checkEverything -> epoch ms of the last email.
+  // A repeating fault must never be allowed to spend the daily mail quota that the
+  // approval emails need.
+  ERROR_MAIL_PREFIX: 'errmail_',
+
   // The owner's own rewrites: [{draft, fixed, at}], newest last, last 10 kept. Fed back
   // into every prompt so the same wording mistake isn't made twice.
   CORRECTIONS: 'OWNER_CORRECTIONS',
@@ -1486,7 +1491,15 @@ function processMessage_(msg) {
     })
   );
 
-  sendApprovalEmail_(msg, ai, token);
+  // If the mail quota is gone, the draft is not lost — it is in the sheet and still
+  // pending. Say so there, because the email that would have told you is the very thing
+  // that failed. notifyError_ is deliberately not used: it would try to send mail too.
+  try {
+    sendApprovalEmail_(msg, ai, token);
+  } catch (err) {
+    Logger.log('Approval email failed: ' + err);
+    updateSheetStatus_(row, 'مسودة واجدة — الإيميل ما مشاش. شوفها هنا');
+  }
 }
 
 /**
@@ -2557,8 +2570,34 @@ function sendApprovalEmail_(msg, ai, token) {
     { htmlBody: html, name: 'فيها خير — نظام الرد الآلي' });
 }
 
+/** At most one email per hour per failing location. See errorEmailDue_ for why. */
+const ERROR_EMAIL_GAP_MS = 60 * 60 * 1000;
+
+/**
+ * True when this location has not emailed within the last hour.
+ *
+ * A consumer Google account may send 100 emails a day, and the approval emails are the
+ * entire point of the system. A fault that repeats on the 5-minute timer fires 288 times
+ * a day, so without this one unrelated broken call spends the whole quota by mid-morning
+ * and the drafts go nowhere. Not hypothetical — it is exactly what the Instagram brace
+ * bug did before this existed.
+ *
+ * The log still records every occurrence. Only the mail is rationed.
+ */
+function errorEmailDue_(where) {
+  const props = PropertiesService.getScriptProperties();
+  const key = PROP.ERROR_MAIL_PREFIX +
+    String(where).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
+  const last = Number(props.getProperty(key) || 0);
+  const now = Date.now();
+  if (now - last < ERROR_EMAIL_GAP_MS) return false;
+  props.setProperty(key, String(now));
+  return true;
+}
+
 function notifyError_(where, err, context) {
   Logger.log('ERROR in ' + where + ': ' + err);
+  if (!errorEmailDue_(where)) return;
   try {
     GmailApp.sendEmail(CONFIG.OWNER_EMAIL,
       '⚠️ خطأ في نظام الرد الآلي — ' + where,
