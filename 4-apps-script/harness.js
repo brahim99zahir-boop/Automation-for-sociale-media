@@ -37,10 +37,19 @@ const fakeSheet = {
   appendRow: r => SHEETDATA.push(r.slice()),
   getLastRow: () => SHEETDATA.length,
   getDataRange: () => ({ getValues: () => SHEETDATA }),
-  getRange: (row, col) => ({
-    getValue: () => SHEETDATA[row - 1][col - 1],
-    setValue: v => { SHEETDATA[row - 1][col - 1] = v; },
-  }),
+  getRange: (row, col) => {
+    // Formatting calls are chainable no-ops; only the value is worth modelling.
+    const cell = {
+      getValue: () => (SHEETDATA[row - 1] || [])[col - 1],
+      setValue: v => {
+        if (!SHEETDATA[row - 1]) SHEETDATA[row - 1] = [];
+        SHEETDATA[row - 1][col - 1] = v;
+      },
+    };
+    ['setNote', 'setBackground', 'setFontWeight', 'setFontColor', 'setValues',
+     'setHorizontalAlignment', 'setWrap'].forEach(m => { cell[m] = () => cell; });
+    return cell;
+  },
 };
 global.__fakeSheet = fakeSheet;
 global.__SHEETDATA = SHEETDATA;

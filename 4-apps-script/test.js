@@ -602,6 +602,63 @@ ok('the sheet says the email did not go',
    H.SHEETDATA[rowQ - 1][8].indexOf('الإيميل ما مشاش') !== -1, H.SHEETDATA[rowQ - 1][8]);
 GmailApp.sendEmail = realSend;
 
+console.log('\n== reviewing in the sheet (costs no email) ==');
+ok('the decision column exists', HEADERS.length === 10 && HEADERS[9] === 'قرارك', HEADERS.length);
+ok('DECISION_COL points at it', DECISION_COL === HEADERS.length);
+
+// Set up a pending draft with a row, then answer it in the sheet rather than by email.
+Object.keys(H.props).forEach(k => { if (k.indexOf('pending_') === 0) delete H.props[k]; });
+delete H.props['OWNER_CORRECTIONS'];
+H.props['REVIEWED_COUNT'] = '0';
+H.props['EDITED_COUNT'] = '0';
+H.props['RUNTIME_SETTINGS'] = JSON.stringify({ DRAFT_ONLY_MODE: true });
+
+const rowS = logToSheet_(
+  { id: 's1', text: 'بشحال؟', author: 'zbon', platform: 'instagram', kind: 'comment' },
+  { reply: 'الثمن 550 درهم', client_type: 'سؤال عن الثمن', lead: 'دافئ' }, 'بانتظار موافقتك');
+H.props['pending_sheet1111-aaaa'] = JSON.stringify({
+  msg: { id: 's1', text: 'بشحال؟', author: 'zbon', platform: 'instagram', kind: 'comment' },
+  reply: 'الثمن 550 درهم', lead: 'دافئ', row: rowS, created: new Date().toISOString(),
+});
+
+// Nothing typed yet — must do nothing at all.
+checkSheetDecisions_();
+ok('an empty cell is left alone', 'pending_sheet1111-aaaa' in H.props);
+
+// Now he types a correction into column J.
+H.SHEETDATA[rowS - 1][DECISION_COL - 1] = 'الثمن ديال العادي 550 درهم للمتر المربع';
+checkSheetDecisions_();
+ok('the pending draft is consumed', !('pending_sheet1111-aaaa' in H.props));
+ok('the cell is cleared so it cannot fire twice',
+   H.SHEETDATA[rowS - 1][DECISION_COL - 1] === '');
+ok('his wording is kept as a correction',
+   JSON.parse(H.props['OWNER_CORRECTIONS'] || '[]').length === 1);
+ok('it counts toward the 30', H.props['REVIEWED_COUNT'] === '1');
+ok('and counts as an edit', H.props['EDITED_COUNT'] === '1');
+
+// "واه" in the sheet approves as written, exactly like the email path.
+const rowT = logToSheet_(
+  { id: 's2', text: 'سلام', author: 'z2', platform: 'instagram', kind: 'comment' },
+  { reply: 'مرحبا', client_type: 'سؤال عام', lead: 'بارد' }, 'بانتظار موافقتك');
+H.props['pending_sheet2222-bbbb'] = JSON.stringify({
+  msg: { id: 's2', text: 'سلام', author: 'z2', platform: 'instagram', kind: 'comment' },
+  reply: 'مرحبا', lead: 'بارد', row: rowT, created: new Date().toISOString(),
+});
+H.SHEETDATA[rowT - 1][DECISION_COL - 1] = 'واه';
+checkSheetDecisions_();
+ok('واه approves without becoming a correction',
+   JSON.parse(H.props['OWNER_CORRECTIONS'] || '[]').length === 1);
+ok('but still counts', H.props['REVIEWED_COUNT'] === '2');
+
+// A pending row with no sheet row must not crash the pass.
+H.props['pending_norow-cccc'] = JSON.stringify({
+  msg: { id: 's3', text: 'x', author: 'z3', platform: 'instagram', kind: 'comment' },
+  reply: 'y', lead: 'بارد', created: new Date().toISOString(),
+});
+ok('a pending row with no row number is skipped safely',
+   (() => { checkSheetDecisions_(); return 'pending_norow-cccc' in H.props; })());
+delete H.props['pending_norow-cccc'];
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

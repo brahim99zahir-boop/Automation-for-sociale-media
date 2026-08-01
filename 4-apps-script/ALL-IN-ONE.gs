@@ -1375,12 +1375,18 @@ function checkEverything() {
       Logger.log('Automation is stopped from the dashboard; doing nothing.');
       return;
     }
-    // The owner's replies to approval emails, first — a correction waiting in the inbox
-    // should go out before this run adds more drafts on top of it.
+    // The owner's answers first — a correction already waiting should go out before this
+    // run piles more drafts on top of it. Two places to look, because email has a daily
+    // quota and the sheet does not: when the mail runs out, the sheet still works.
     try {
       checkEmailReplies_();
     } catch (err) {
       notifyError_('checkEmailReplies', err, '');
+    }
+    try {
+      checkSheetDecisions_();
+    } catch (err) {
+      notifyError_('checkSheetDecisions', err, '');
     }
 
     let total = 0;
@@ -2370,6 +2376,47 @@ function applyOwnerReply_(pending, body) {
 }
 
 // ---------------------------------------------------------------------------
+// REVIEWING IN THE SHEET
+//
+// The same decision as the email reply, typed into column J instead. This exists
+// because email is rationed — 100 a day on a free Google account — and the sheet is
+// not. When the mail allowance is gone the drafts still arrive here, so the owner is
+// never actually blocked from working.
+//
+// It is also just faster for thirty in a row: open the sheet, read down the الرد
+// column, type in قرارك, done. No inbox, no clicking.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads column J on every row that is still awaiting a decision and acts on it.
+ *
+ * Whatever is typed goes through the same path as an emailed reply: "واه" sends the
+ * draft as written, "لا" bins it, and anything else replaces the draft and is kept as
+ * a correction. The cell is cleared once used, so a decision cannot fire twice.
+ */
+function checkSheetDecisions_() {
+  const props = PropertiesService.getScriptProperties();
+  const keys = props.getKeys().filter(k => k.indexOf(PROP.PENDING_PREFIX) === 0);
+  if (!keys.length) return;
+
+  const sh = getSheet_();
+  for (const key of keys) {
+    let pending;
+    try { pending = JSON.parse(props.getProperty(key) || 'null'); } catch (e) { continue; }
+    if (!pending || !pending.row) continue;
+
+    const cell = sh.getRange(pending.row, DECISION_COL);
+    const decision = String(cell.getValue() || '').trim();
+    if (!decision) continue;
+
+    // Consume both before acting, so a failure mid-send cannot replay this row.
+    props.deleteProperty(key);
+    cell.setValue('');
+    applyOwnerReply_(pending, decision);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // LEARNING FROM THE CORRECTIONS
 // ---------------------------------------------------------------------------
 
@@ -2669,7 +2716,10 @@ function dailySummary() {
 // ---------------------------------------------------------------------------
 
 const HEADERS = ['التاريخ', 'المنصة', 'النوع', 'اسم العميل', 'الرسالة',
-                 'نوع العميل', 'درجة الاهتمام', 'الرد', 'الحالة'];
+                 'نوع العميل', 'درجة الاهتمام', 'الرد', 'الحالة', 'قرارك'];
+
+/** Column J — where the owner types his answer when he is not using email. */
+const DECISION_COL = 10;
 
 /** Run once. Creates the spreadsheet with Arabic headers and logs its ID. */
 function setupSheet() {
@@ -2685,6 +2735,17 @@ function setupSheet() {
   sh.setFrozenRows(1);
   sh.setColumnWidth(5, 260);
   sh.setColumnWidth(8, 260);
+
+  // Column J is where he answers without spending an email. Made wide and obvious,
+  // with the instructions on the header itself so they cannot be forgotten.
+  sh.setColumnWidth(DECISION_COL, 220);
+  sh.getRange(1, DECISION_COL)
+    .setBackground('#1d4ed8')
+    .setNote('كتب هنا:\n\n' +
+             'واه  →  صيفط الرد كيف ما هو\n' +
+             'لا   →  ما تصيفط والو\n' +
+             'أي نص آخر  →  كيتصيفط النص ديالك بلاصتو\n\n' +
+             'كيتقرا كل 5 دقايق. الخانة كتتمسح ملي يتدار.');
 
   // Colour the lead column so hot leads jump out at a glance.
   const leadCol = sh.getRange('G2:G2000');
