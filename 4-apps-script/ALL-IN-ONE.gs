@@ -2823,6 +2823,15 @@ function statusCheck() {
     Logger.log(k + ': ' + (platformEnabled_(k) ? 'ON' : 'off') +
       ' (comments:' + !!c.comments + ' dm:' + !!c.dm + ')');
   });
+  // The daily mail allowance, straight from Google rather than guessed at. A consumer
+  // account gets 100; every approval email spends one. If this reads 0, drafts are still
+  // being written to the sheet, they just cannot be mailed until the window rolls over.
+  try {
+    Logger.log('--- email ---');
+    Logger.log('Emails left today: ' + MailApp.getRemainingDailyQuota());
+  } catch (e) {
+    Logger.log('Emails left today: unknown (' + e + ')');
+  }
   Logger.log('--- safety ---');
   Logger.log('AUTOMATION_ENABLED:  ' + getSetting_('AUTOMATION_ENABLED'));
   Logger.log('DRAFT_ONLY_MODE:     ' + getSetting_('DRAFT_ONLY_MODE'));

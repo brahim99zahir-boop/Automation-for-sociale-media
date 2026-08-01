@@ -86,6 +86,10 @@ global.GmailApp = {
 };
 const EMAILS = [];
 global.__EMAILS = EMAILS;
+// Google reports the real remaining allowance; tests set global.__QUOTA to fake it.
+global.MailApp = {
+  getRemainingDailyQuota: () => (global.__QUOTA === undefined ? 100 : global.__QUOTA),
+};
 global.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
 // Scriptable HTTP stub. Tests set global.__ROUTES = {urlSubstring: {code, body}}.
 const mkRes = (code, body) => ({
