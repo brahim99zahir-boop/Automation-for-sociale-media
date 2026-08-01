@@ -43,6 +43,8 @@ function checkEverything() {
       Logger.log('Automation is stopped from the dashboard; doing nothing.');
       return;
     }
+    migrateSeenIds_();   // one-time, no-op once the old blob is gone
+
     // The owner's answers first — a correction already waiting should go out before this
     // run piles more drafts on top of it. Two places to look, because email has a daily
     // quota and the sheet does not: when the mail runs out, the sheet still works.
@@ -92,8 +94,19 @@ function runPlatform_(name, cfg) {
     }
   }
 
+  // Oldest first, so catching up on a backlog works through it in order rather than
+  // answering last week and never reaching last month.
+  batch.sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+
+  let skipped = 0;
   for (const msg of batch) {
     if (isAlreadySeen_(msg.id)) continue;
+
+    // Apps Script kills a run at 6 minutes and a message is marked seen before it is
+    // answered, so anything the timeout cut off would vanish. Stop well short and leave
+    // the rest untouched — the next run picks them up, still unseen.
+    if (handled >= CONFIG.MAX_PER_RUN) { skipped++; continue; }
+
     markSeen_(msg.id);      // mark BEFORE processing, so a crash can't cause a re-reply
     try {
       processMessage_(msg);
@@ -102,7 +115,8 @@ function runPlatform_(name, cfg) {
       notifyError_(name + '/process', err, JSON.stringify(msg));
     }
   }
-  Logger.log(name + ': ' + handled + ' new of ' + batch.length + ' fetched.');
+  Logger.log(name + ': ' + handled + ' new of ' + batch.length + ' fetched' +
+    (skipped ? ', ' + skipped + ' left for the next run.' : '.'));
   return handled;
 }
 
@@ -116,6 +130,13 @@ function processMessage_(msg) {
   // beats both silence and a guess at what was said.
   if (msg.isVoice && !hasSecret_(PROP.GOOGLE_STT_KEY)) {
     handleVoiceWithoutStt_(msg);
+    return;
+  }
+
+  // Old comments are logged, never answered in public. See tooOldToAnswer_.
+  if (tooOldToAnswer_(msg)) {
+    logToSheet_(msg, { reply: '', client_type: 'أخرى', lead: 'بارد' },
+      'قديم — ما تجاوبش عليه علنا. عيط ليه بيدك إلا بغيتي');
     return;
   }
 
@@ -245,6 +266,27 @@ function handleVoiceWithoutStt_(msg) {
   } catch (err) {
     Logger.log('Voice notification failed: ' + err);
   }
+}
+
+/**
+ * True when a comment is too old to answer in public.
+ *
+ * Two reasons, and the second is the one that matters. A customer who asked the price
+ * four months ago has already bought somewhere or forgotten; a reply now is noise. And
+ * a burst of replies to old threads is the exact pattern platforms treat as spam — this
+ * account is 708 posts and 10.6M views, which is not worth risking to answer someone who
+ * has moved on.
+ *
+ * They still reach the sheet, marked as a lead. Contacting them is a human decision.
+ * A message with no timestamp is treated as current, because guessing old would silence
+ * a live customer.
+ */
+function tooOldToAnswer_(msg) {
+  if (!msg.createdAt) return false;
+  const when = new Date(msg.createdAt).getTime();
+  if (!when) return false;
+  const days = (Date.now() - when) / (24 * 60 * 60 * 1000);
+  return days > CONFIG.MAX_PUBLIC_REPLY_AGE_DAYS;
 }
 
 /** Returns the matched topic word, or '' if the message is clear. */
@@ -1476,19 +1518,44 @@ function updateSheetStatus_(row, status) {
 // DEDUP
 // ---------------------------------------------------------------------------
 
-function isAlreadySeen_(id) { return seenList_().indexOf(id) !== -1; }
-
-function markSeen_(id) {
-  const list = seenList_();
-  list.push(id);
-  PropertiesService.getScriptProperties()
-    .setProperty(PROP.SEEN_IDS, JSON.stringify(list.slice(-800)));
+/**
+ * One property per handled message.
+ *
+ * This used to be a single JSON array of every id. A Script Property value tops out
+ * around 9KB and an Instagram id is ~18 characters, so the list was trimmed to the last
+ * 800 — and the moment a backlog ran past 800, the oldest ids fell out and those
+ * customers were answered a second time. A property each has no such ceiling, and a
+ * lookup is one read rather than parsing the whole history.
+ */
+function isAlreadySeen_(id) {
+  return !!PropertiesService.getScriptProperties().getProperty(PROP.SEEN_PREFIX + id);
 }
 
-function seenList_() {
-  const raw = PropertiesService.getScriptProperties().getProperty(PROP.SEEN_IDS);
-  if (!raw) return [];
-  try { return JSON.parse(raw); } catch (e) { return []; }
+function markSeen_(id) {
+  PropertiesService.getScriptProperties()
+    .setProperty(PROP.SEEN_PREFIX + id, String(Date.now()));
+}
+
+/**
+ * Moves the old blob across, once, then deletes it. Runs from checkEverything, costs
+ * nothing after the first time because the property is gone.
+ */
+function migrateSeenIds_() {
+  const props = PropertiesService.getScriptProperties();
+  const raw = props.getProperty(PROP.SEEN_IDS);
+  if (!raw) return 0;
+
+  let list = [];
+  try { list = JSON.parse(raw); } catch (e) { list = []; }
+
+  const now = String(Date.now());
+  const batch = {};
+  list.forEach(id => { batch[PROP.SEEN_PREFIX + id] = now; });
+  if (Object.keys(batch).length) props.setProperties(batch);   // one call, not 800
+
+  props.deleteProperty(PROP.SEEN_IDS);
+  Logger.log('Migrated ' + list.length + ' seen ids to their own properties.');
+  return list.length;
 }
 
 // ---------------------------------------------------------------------------

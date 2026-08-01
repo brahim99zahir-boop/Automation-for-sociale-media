@@ -49,6 +49,22 @@ const CONFIG = {
 
   // How many recent posts/videos to scan per platform on each run.
   MEDIA_TO_SCAN: 5,
+
+  // ---- Catching up on old comments ----
+  // While BACKLOG_MODE is on (switch it from the sheet menu), this many posts are walked
+  // instead of MEDIA_TO_SCAN. Turn it off once the sheet stops filling up.
+  BACKLOG_MEDIA_TO_SCAN: 50,
+
+  // Never handle more than this in one execution. Apps Script kills a run at 6 minutes,
+  // and a message is marked seen before it is answered — so anything the timeout cuts off
+  // would be lost silently. Whatever is left is simply picked up on the next run.
+  MAX_PER_RUN: 15,
+
+  // A public reply to a months-old comment reads as spam to the customer and to
+  // Instagram, and mass-replying to old threads is what gets accounts restricted.
+  // Anything older than this is logged as a lead for you to contact yourself, never
+  // answered publicly.
+  MAX_PUBLIC_REPLY_AGE_DAYS: 30,
 };
 
 /**
@@ -131,7 +147,14 @@ const PROP = {
   TIKTOK_TOKEN: 'TIKTOK_ACCESS_TOKEN',
   // Google Cloud Speech-to-Text, for voice notes. Optional — the rest works without it.
   GOOGLE_STT_KEY: 'GOOGLE_STT_KEY',
+  // Legacy: every id in one JSON blob. A property tops out around 9KB, so this held
+  // roughly 800 ids and then silently dropped the oldest — which meant re-replying to
+  // the same customer. Kept only so the one-time migration can find it.
   SEEN_IDS: 'SEEN_COMMENT_IDS',
+  // One property per handled message: seen_17925... -> epoch ms. Lookup is a single
+  // read instead of parsing the whole history, and there is no ceiling worth worrying
+  // about (Apps Script allows 500,000 properties).
+  SEEN_PREFIX: 'seen_',
   PENDING_PREFIX: 'pending_',
 
   // Runtime settings the dashboard can change (see Settings.gs for why these can't

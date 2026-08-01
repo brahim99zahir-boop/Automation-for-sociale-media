@@ -482,7 +482,7 @@ ok('does not re-fire past 30', __EMAILS.length === mailsBefore + 1);
 
 console.log('\n== the sheet menu (the control panel that is not a web page) ==');
 onOpenMenu();
-ok('menu is built', Array.isArray(__MENU) && __MENU.length === 6, (__MENU || []).length);
+ok('menu is built', Array.isArray(__MENU) && __MENU.length === 7, (__MENU || []).length);
 ok('every menu item points at a real function',
    __MENU.every(([, fn]) => typeof global[fn] === 'function'),
    (__MENU.find(([, fn]) => typeof global[fn] !== 'function') || [])[1]);
@@ -658,6 +658,67 @@ H.props['pending_norow-cccc'] = JSON.stringify({
 ok('a pending row with no row number is skipped safely',
    (() => { checkSheetDecisions_(); return 'pending_norow-cccc' in H.props; })());
 delete H.props['pending_norow-cccc'];
+
+console.log('\n== the backlog: dedupe, batching, and age ==');
+// The old store kept every id in ONE property capped at 800. A property tops out near
+// 9KB and an Instagram id is ~18 chars, so a backlog past 800 dropped the oldest ids and
+// answered those customers a second time. One property each has no such ceiling.
+Object.keys(H.props).forEach(k => {
+  if (k.indexOf('seen_') === 0) delete H.props[k];
+});
+delete H.props['SEEN_COMMENT_IDS'];
+
+for (let i = 0; i < 1200; i++) markSeen_('id' + i);
+ok('1200 ids all remembered', isAlreadySeen_('id0') && isAlreadySeen_('id1199'));
+ok('the 800-id cliff is gone', isAlreadySeen_('id5') && isAlreadySeen_('id400'));
+ok('an unknown id is still unseen', !isAlreadySeen_('never--seen'));
+
+// The old blob must carry across once, then disappear.
+Object.keys(H.props).forEach(k => { if (k.indexOf('seen_') === 0) delete H.props[k]; });
+H.props['SEEN_COMMENT_IDS'] = JSON.stringify(['old1', 'old2', 'old3']);
+ok('migration reports what it moved', migrateSeenIds_() === 3);
+ok('migrated ids count as seen', isAlreadySeen_('old1') && isAlreadySeen_('old3'));
+ok('the old blob is deleted', !('SEEN_COMMENT_IDS' in H.props));
+ok('migration is a no-op the second time', migrateSeenIds_() === 0);
+
+// Age guard. No timestamp must mean "current" — guessing old would silence a live customer.
+const daysAgo = (n) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+ok('a comment from today is answered', !tooOldToAnswer_({ createdAt: daysAgo(0) }));
+ok('a comment from 29 days ago is answered', !tooOldToAnswer_({ createdAt: daysAgo(29) }));
+ok('a comment from 200 days ago is not', tooOldToAnswer_({ createdAt: daysAgo(200) }));
+ok('no timestamp is treated as current', !tooOldToAnswer_({}));
+ok('an unparseable timestamp is treated as current',
+   !tooOldToAnswer_({ createdAt: 'not a date' }));
+
+// Backlog mode widens the scan.
+setSetting_('BACKLOG_MODE', false);
+ok('normal mode scans the few recent posts', postsToScan_() === CONFIG.MEDIA_TO_SCAN);
+setSetting_('BACKLOG_MODE', true);
+ok('backlog mode scans far more', postsToScan_() === CONFIG.BACKLOG_MEDIA_TO_SCAN);
+setSetting_('BACKLOG_MODE', false);
+
+// The per-run cap. Anything over the cap must be left UNSEEN so the next run gets it —
+// marking it seen without answering would lose the customer silently.
+Object.keys(H.props).forEach(k => { if (k.indexOf('seen_') === 0) delete H.props[k]; });
+const many = [];
+for (let i = 0; i < 40; i++) {
+  many.push({ id: 'bk' + i, text: 'سلام', author: 'z' + i, platform: 'instagram',
+              kind: 'comment', createdAt: daysAgo(300) });   // old: logged, never answered
+}
+const fakeAdapter = { fetchComments: () => many };
+const realAdapterFor = adapterFor_;
+global.adapterFor_ = () => fakeAdapter;
+const done = runPlatform_('instagram', { comments: true, dm: false });
+ok('a run stops at the cap', done === CONFIG.MAX_PER_RUN, done);
+ok('the ones handled are marked seen', isAlreadySeen_('bk0'));
+ok('the ones left over are NOT marked seen', !isAlreadySeen_('bk39'));
+const done2 = runPlatform_('instagram', { comments: true, dm: false });
+ok('the next run continues where it stopped', done2 === CONFIG.MAX_PER_RUN, done2);
+ok('and eventually reaches the rest', isAlreadySeen_('bk20'));
+global.adapterFor_ = realAdapterFor;
+
+ok('the backlog switch is in the menu',
+   (() => { onOpenMenu(); return __MENU.some(([, fn]) => fn === 'menuToggleBacklog'); })());
 
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });

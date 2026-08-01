@@ -617,6 +617,7 @@ function onOpenMenu() {
     .addItem('⏯️ حبس / تشغيل الأوتوماسيون', 'menuToggleRunning')
     .addItem('🧪 وضع الاختبار (مسودات فقط)', 'menuToggleDraft')
     .addItem('✋ يسول عليا قبل كل رد', 'menuToggleApproval')
+    .addItem('🕐 وضع التعليقات القديمة', 'menuToggleBacklog')
     .addSeparator()
     .addItem('📷 إنستغرام', 'menuToggleInstagram')
     .addItem('👍 فيسبوك', 'menuToggleFacebook')
@@ -643,7 +644,8 @@ function menuStatus() {
   SpreadsheetApp.getUi().alert('فيها خير — الحالة',
     'الأوتوماسيون خدام: ' + yn(getSetting_('AUTOMATION_ENABLED')) + '\n' +
     'وضع الاختبار (ما كينشرش): ' + yn(getSetting_('DRAFT_ONLY_MODE')) + '\n' +
-    'كيسول قبل كل رد: ' + yn(getSetting_('ALWAYS_ASK_APPROVAL')) + '\n\n' +
+    'كيسول قبل كل رد: ' + yn(getSetting_('ALWAYS_ASK_APPROVAL')) + '\n' +
+    'وضع التعليقات القديمة: ' + yn(getSetting_('BACKLOG_MODE')) + '\n\n' +
     'إنستغرام: ' + yn(platformEnabled_('instagram')) +
       '   |   فيسبوك: ' + yn(platformEnabled_('facebook')) + '\n\n' +
     '— اليوم —\n' +
@@ -683,6 +685,15 @@ function menuToggleApproval() {
     'كيسول عليك قبل كل رد.',
     'كيجاوب بوحدو. الثمن والشكاية والمواضيع اللي ماعندناش فيها معلومة ' +
     'كيبقاو كيتسناو موافقتك على أي حال.');
+}
+
+function menuToggleBacklog() {
+  menuFlip_('BACKLOG_MODE', 'التعليقات القديمة',
+    'مشعل. كيقلب على ' + CONFIG.BACKLOG_MEDIA_TO_SCAN + ' بوست عوض ' +
+      CONFIG.MEDIA_TO_SCAN + '، و' + CONFIG.MAX_PER_RUN + ' رسالة ف كل دورة. ' +
+      'اللي بقا كثر من ' + CONFIG.MAX_PUBLIC_REPLY_AGE_DAYS + ' يوم كيتسجل غير ' +
+      'فالجدول وما كيتجاوبش عليه علنا. طفيه ملي يوقف الجدول على العمار.',
+    'مطفي. رجع كيقلب غير على ' + CONFIG.MEDIA_TO_SCAN + ' بوستات الجداد.');
 }
 
 /** Platforms live under their own keys, so they do not go through menuFlip_. */

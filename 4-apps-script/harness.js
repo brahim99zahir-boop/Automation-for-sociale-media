@@ -13,6 +13,7 @@ global.PropertiesService = {
     getProperty: k => (k in _props ? _props[k] : null),
     setProperty: (k, v) => { _props[k] = String(v); },
     deleteProperty: k => { delete _props[k]; },
+    setProperties: o => { Object.keys(o).forEach(k => { _props[k] = String(o[k]); }); },
     getKeys: () => Object.keys(_props),
   }),
 };

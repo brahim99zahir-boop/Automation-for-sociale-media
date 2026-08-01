@@ -23,6 +23,7 @@ const SETTABLE = {
   DRAFT_ONLY_MODE: null,             // null = fall back to CONFIG[key]
   ALWAYS_ASK_APPROVAL: null,
   DAILY_SUMMARY: null,
+  BACKLOG_MODE: false,               // scan far more posts while catching up on old ones
   PLATFORM_INSTAGRAM: null,          // mirrors PLATFORMS.instagram.enabled
   PLATFORM_FACEBOOK: null,
   PLATFORM_YOUTUBE: null,

@@ -116,10 +116,12 @@ const Instagram = {
     // media_url is the video file, so thumbnail_url is the one worth carrying.
     const media = httpGetJson_(IG_GRAPH +
       'me/media?fields=id,caption,media_type,media_url,thumbnail_url&limit=' +
-      CONFIG.MEDIA_TO_SCAN + '&access_token=' + encodeURIComponent(token)).data || [];
+      postsToScan_() + '&access_token=' + encodeURIComponent(token)).data || [];
 
+    // timestamp is what lets an old comment be recognised as old — without it every
+    // comment on a two-year-old post looks like it arrived this morning.
     const bodies = httpGetAllJson_(media.map(m => IG_GRAPH + m.id +
-      '/comments?fields=id,text,username&limit=25&access_token=' +
+      '/comments?fields=id,text,username,timestamp&limit=50&access_token=' +
       encodeURIComponent(token)));
 
     bodies.forEach((body, i) => {
@@ -129,6 +131,7 @@ const Instagram = {
         out.push({
           id: c.id, text: c.text, author: c.username || 'unknown',
           platform: 'instagram', postId: media[i].id, kind: 'comment',
+          createdAt: c.timestamp || '',
           postCaption: media[i].caption || '',
           postImage: media[i].thumbnail_url || media[i].media_url || '',
         });
@@ -215,6 +218,17 @@ const Instagram = {
  */
 function fields_(spec) {
   return 'fields=' + encodeURIComponent(spec);
+}
+
+/**
+ * How many posts to walk this run. Normally the handful with fresh activity; while
+ * catching up on a backlog, far more. Toggled from the sheet menu rather than the code,
+ * so it can be switched off the moment the sheet stops filling.
+ */
+function postsToScan_() {
+  return getSetting_('BACKLOG_MODE')
+    ? CONFIG.BACKLOG_MEDIA_TO_SCAN
+    : CONFIG.MEDIA_TO_SCAN;
 }
 
 function voiceAttachment_(m) {
