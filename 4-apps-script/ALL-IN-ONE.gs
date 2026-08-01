@@ -3033,6 +3033,76 @@ function statusCheck() {
 }
 
 /** Safe end-to-end test with a fake comment — touches no real account. */
+/**
+ * Asks Instagram directly what it will give us, and prints it.
+ *
+ * "0 of 0 fetched" with no error means the calls succeeded and returned nothing, which
+ * has several very different causes — a token for the wrong account, a missing
+ * permission, or genuinely no comments. Each looks identical from the outside, so this
+ * walks the same calls the automation makes and shows the answers.
+ *
+ * Never prints the token.
+ */
+function diagnoseInstagram() {
+  const token = getSecret_(PROP.META_TOKEN);
+  const q = '&access_token=' + encodeURIComponent(token);
+
+  const show = (label, url) => {
+    try {
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      const code = res.getResponseCode();
+      const body = res.getContentText();
+      Logger.log(label + ' [' + code + '] ' + body.slice(0, 600));
+      return code === 200 ? JSON.parse(body) : null;
+    } catch (err) {
+      Logger.log(label + ' THREW: ' + err);
+      return null;
+    }
+  };
+
+  Logger.log('=== which account is this token for? ===');
+  const me = show('me', IG_GRAPH + 'me?fields=id,username,account_type,media_count' + q);
+  if (me && me.username) {
+    Logger.log('>>> token belongs to @' + me.username +
+      ' — if that is not your business account, that is the problem.');
+  }
+
+  Logger.log('=== posts it can see ===');
+  const media = show('media', IG_GRAPH +
+    'me/media?fields=id,timestamp,comments_count&limit=' + postsToScan_() + q);
+  const posts = (media && media.data) || [];
+  Logger.log('>>> ' + posts.length + ' posts visible.');
+  let withComments = 0;
+  posts.forEach(p => { if (p.comments_count) withComments++; });
+  Logger.log('>>> ' + withComments + ' of them report having comments.');
+
+  if (posts.length) {
+    Logger.log('=== comments on the newest post ===');
+    show('comments', IG_GRAPH + posts[0].id +
+      '/comments?fields=id,text,username,timestamp&limit=50' + q);
+  }
+
+  Logger.log('=== each inbox folder ===');
+  DM_FOLDERS.forEach(folder => {
+    const r = show('folder ' + folder, IG_GRAPH +
+      'me/conversations?platform=instagram&folder=' + folder + '&' +
+      fields_('participants,messages.limit(1){id,message,from}') + '&limit=20' + q);
+    Logger.log('>>> ' + folder + ': ' + (((r && r.data) || []).length) + ' threads.');
+  });
+
+  Logger.log('=== what the automation actually collects ===');
+  try { Logger.log('comments: ' + Instagram.fetchComments().length); }
+  catch (e) { Logger.log('fetchComments threw: ' + e); }
+  try { Logger.log('dms: ' + Instagram.fetchDMs().length); }
+  catch (e) { Logger.log('fetchDMs threw: ' + e); }
+
+  Logger.log('=== already handled ===');
+  const seen = PropertiesService.getScriptProperties().getKeys()
+    .filter(k => k.indexOf(PROP.SEEN_PREFIX) === 0).length;
+  Logger.log('>>> ' + seen + ' messages already marked as handled — those are skipped ' +
+    'on purpose and will never be fetched as "new" again.');
+}
+
 function testWithFakeComment() {
   processMessage_({
     id: 'TEST_' + Date.now(),
