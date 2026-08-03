@@ -775,6 +775,44 @@ PLATFORMS.instagram.igUserId = '';
 delete H.props['META_ACCESS_TOKEN'];
 global.__ROUTES = {};
 
+console.log('\n== the paste tab (needs no Meta permission) ==');
+// Reading real customers needs Advanced Access, which needs App Review, which takes
+// weeks. Everything else works without it — so a comment pasted by hand gets answered.
+global.__ROUTES = { 'api.anthropic.com': { body: { content: [{ text: JSON.stringify({
+  reply: 'الثمن ديال العادي 550 درهم للمتر. صيفط لينا القياس.',
+  client_type: 'سؤال عن الثمن', lead: 'دافئ', needs_human: false }) }],
+  usage: { input_tokens: 10, output_tokens: 10 } } } };
+H.props['ANTHROPIC_API_KEY'] = 'k';
+
+__PASTEDATA.push(['بشحال الموستكير؟', 'zbon_jdid', '', '', '']);
+checkPasteSheet_();
+ok('a pasted comment gets a reply', String(__PASTEDATA[1][2]).indexOf('550') !== -1,
+   __PASTEDATA[1][2]);
+ok('the type is filled in', __PASTEDATA[1][3] === 'سؤال عن الثمن', __PASTEDATA[1][3]);
+ok('the lead is filled in', __PASTEDATA[1][4] === 'دافئ', __PASTEDATA[1][4]);
+
+// A row already answered must not be answered again, or it would burn a call per run.
+const wasReply = __PASTEDATA[1][2];
+checkPasteSheet_();
+ok('an answered row is left alone', __PASTEDATA[1][2] === wasReply);
+
+// Empty rows are skipped rather than sent to the model.
+__PASTEDATA.push(['', '', '', '', '']);
+checkPasteSheet_();
+ok('an empty row is skipped', __PASTEDATA[2][2] === '');
+
+// A failure is written into the row, not swallowed — the sheet is the only place he looks.
+global.__ROUTES = { 'api.anthropic.com': { code: 401, body: 'bad key' } };
+__PASTEDATA.push(['شنو الألوان؟', 'z2', '', '', '']);
+checkPasteSheet_();
+ok('an error lands in the row where he can see it',
+   String(__PASTEDATA[3][2]).indexOf('خطأ') === 0, __PASTEDATA[3][2]);
+
+ok('the paste tab has its own headers',
+   PASTE_HEADERS.length === 5 && PASTE_HEADERS[2] === 'الرد');
+delete H.props['ANTHROPIC_API_KEY'];
+global.__ROUTES = {};
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

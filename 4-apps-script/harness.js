@@ -32,28 +32,37 @@ global.Logger = { log: m => LOGS.push(String(m)) };
 const LOGS = [];
 
 // A fake sheet backed by an array, so appendRow/getLastRow/getRange behave.
+function makeSheet(data) {
+  return {
+    appendRow: r => data.push(r.slice()),
+    getLastRow: () => data.length,
+    getDataRange: () => ({ getValues: () => data }),
+    getRange: (row, col) => {
+      // Formatting calls are chainable no-ops; only the value is worth modelling.
+      const cell = {
+        getValue: () => (data[row - 1] || [])[col - 1],
+        setValue: v => {
+          if (!data[row - 1]) data[row - 1] = [];
+          data[row - 1][col - 1] = v;
+        },
+      };
+      ['setNote', 'setBackground', 'setFontWeight', 'setFontColor', 'setValues',
+       'setHorizontalAlignment', 'setWrap'].forEach(m => { cell[m] = () => cell; });
+      return cell;
+    },
+    setRightToLeft() {}, setFrozenRows() {}, setColumnWidth() {}, clear() {},
+    setConditionalFormatRules() {},
+  };
+}
+
 const SHEETDATA = [['التاريخ','المنصة','النوع','اسم العميل','الرسالة',
-                    'نوع العميل','درجة الاهتمام','الرد','الحالة']];
-const fakeSheet = {
-  appendRow: r => SHEETDATA.push(r.slice()),
-  getLastRow: () => SHEETDATA.length,
-  getDataRange: () => ({ getValues: () => SHEETDATA }),
-  getRange: (row, col) => {
-    // Formatting calls are chainable no-ops; only the value is worth modelling.
-    const cell = {
-      getValue: () => (SHEETDATA[row - 1] || [])[col - 1],
-      setValue: v => {
-        if (!SHEETDATA[row - 1]) SHEETDATA[row - 1] = [];
-        SHEETDATA[row - 1][col - 1] = v;
-      },
-    };
-    ['setNote', 'setBackground', 'setFontWeight', 'setFontColor', 'setValues',
-     'setHorizontalAlignment', 'setWrap'].forEach(m => { cell[m] = () => cell; });
-    return cell;
-  },
-};
+                    'نوع العميل','درجة الاهتمام','الرد','الحالة','قرارك']];
+const PASTEDATA = [['الرسالة ديال الزبون','اسم الزبون','الرد','النوع','الاهتمام']];
+const fakeSheet = makeSheet(SHEETDATA);
+const pasteFake = makeSheet(PASTEDATA);
 global.__fakeSheet = fakeSheet;
 global.__SHEETDATA = SHEETDATA;
+global.__PASTEDATA = PASTEDATA;
 
 // Alerts raised by the sheet menu land in global.__ALERTS as [title, body]; the menu
 // definition itself lands in global.__MENU as [[label, functionName], ...].
@@ -66,7 +75,22 @@ const fakeMenu = {
   addToUi() { global.__MENU = this._items.slice(); this._items = []; },
 };
 global.SpreadsheetApp = {
-  openById: () => ({ getUrl: () => 'https://sheet', getSheetByName: () => fakeSheet }),
+  openById: () => ({
+    getUrl: () => 'https://sheet',
+    getId: () => 'TEST_SHEET',
+    getSheetByName: n => (n === 'لصق' ? pasteFake : fakeSheet),
+    insertSheet: n => (n === 'لصق' ? pasteFake : fakeSheet),
+  }),
+  create: () => ({ getUrl: () => 'https://sheet', getId: () => 'TEST_SHEET',
+                   getSheetByName: n => (n === 'لصق' ? pasteFake : fakeSheet),
+                   insertSheet: n => (n === 'لصق' ? pasteFake : fakeSheet) }),
+  newConditionalFormatRule: () => {
+    const r = {};
+    ['whenTextEqualTo', 'setBackground', 'setFontColor', 'setRanges']
+      .forEach(m => { r[m] = () => r; });
+    r.build = () => ({});
+    return r;
+  },
   getUi: () => ({
     ButtonSet: { OK: 'OK' },
     alert: (title, body) => ALERTS.push([title, body]),

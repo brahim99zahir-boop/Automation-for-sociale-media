@@ -58,6 +58,12 @@ function checkEverything() {
     } catch (err) {
       notifyError_('checkSheetDecisions', err, '');
     }
+    // Anything pasted by hand. Works whether or not Meta has approved anything.
+    try {
+      checkPasteSheet_();
+    } catch (err) {
+      notifyError_('checkPasteSheet', err, '');
+    }
 
     let total = 0;
     for (const name of Object.keys(PLATFORMS)) {
@@ -1086,6 +1092,67 @@ function applyOwnerReply_(pending, body) {
 }
 
 // ---------------------------------------------------------------------------
+// THE PASTE TAB — works with no Meta permission at all
+// ---------------------------------------------------------------------------
+
+/** The paste tab, created on demand so an older sheet gains it without a full re-setup. */
+function pasteSheet_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  let sh = ss.getSheetByName(PASTE_SHEET);
+  if (sh) return sh;
+
+  sh = ss.insertSheet(PASTE_SHEET);
+  sh.getRange(1, 1, 1, PASTE_HEADERS.length).setValues([PASTE_HEADERS])
+    .setFontWeight('bold').setBackground('#1d4ed8').setFontColor('#ffffff');
+  sh.setRightToLeft(true);
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 320);
+  sh.setColumnWidth(3, 320);
+  sh.getRange(1, 1).setNote(
+    'لصق هنا التعليق ديال الزبون كيف ما هو.\n\n' +
+    'الرد كيبان ف خانة "الرد" ف أقل من 5 دقايق.\n' +
+    'من بعد كتنقلو لإنستغرام بيدك.\n\n' +
+    'هادشي كيخدم بلا حتى إذن من Meta.');
+  return sh;
+}
+
+/**
+ * Answers anything pasted into the paste tab.
+ *
+ * A row with a message and no reply gets one. Nothing is posted anywhere — the reply is
+ * written back into the sheet and the owner moves it himself, which is also why this
+ * needs no permission and cannot get an account restricted.
+ */
+function checkPasteSheet_() {
+  if (!CONFIG.SPREADSHEET_ID) return;
+  const sh = pasteSheet_();
+  const rows = sh.getDataRange().getValues();
+
+  let done = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const text = String(rows[i][0] || '').trim();
+    const already = String(rows[i][2] || '').trim();
+    if (!text || already) continue;
+    if (done >= CONFIG.MAX_PER_RUN) break;    // same guard as the live path
+
+    try {
+      const ai = generateReply_({
+        id: 'paste_' + (i + 1), text: text,
+        author: String(rows[i][1] || '').trim() || 'زبون',
+        platform: 'instagram', kind: 'comment',
+      });
+      sh.getRange(i + 1, 3).setValue(ai.reply || '(ما كاين ما يتقال)');
+      sh.getRange(i + 1, 4).setValue(ai.client_type || '');
+      sh.getRange(i + 1, 5).setValue(ai.lead || '');
+    } catch (err) {
+      sh.getRange(i + 1, 3).setValue('خطأ: ' + String(err).slice(0, 200));
+    }
+    done++;
+  }
+  if (done) Logger.log('Paste tab: answered ' + done + '.');
+}
+
+// ---------------------------------------------------------------------------
 // REVIEWING IN THE SHEET
 //
 // The same decision as the email reply, typed into column J instead. This exists
@@ -1431,6 +1498,17 @@ const HEADERS = ['التاريخ', 'المنصة', 'النوع', 'اسم الع�
 /** Column J — where the owner types his answer when he is not using email. */
 const DECISION_COL = 10;
 
+/**
+ * A second tab where a comment can simply be pasted and a reply comes back.
+ *
+ * This exists because reading real customers through the API needs Advanced Access, and
+ * that means App Review, which takes weeks. Everything else here — the voice, the prices,
+ * the guards, the script matching — works without Meta's permission. Only the fetching
+ * does not. So: paste the comment yourself, get the reply, paste it back on Instagram.
+ */
+const PASTE_SHEET = 'لصق';
+const PASTE_HEADERS = ['الرسالة ديال الزبون', 'اسم الزبون', 'الرد', 'النوع', 'الاهتمام'];
+
 /** Run once. Creates the spreadsheet with Arabic headers and logs its ID. */
 function setupSheet() {
   const ss = CONFIG.SPREADSHEET_ID
@@ -1465,6 +1543,9 @@ function setupSheet() {
     SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('دافئ')
       .setBackground('#ffedd5').setFontColor('#9a3412').setRanges([leadCol]).build(),
   ]);
+
+  // The paste tab is created here too, so a fresh setup has both.
+  try { pasteSheet_(); } catch (e) { Logger.log('Paste tab skipped: ' + e); }
 
   Logger.log('Spreadsheet ready: ' + ss.getUrl());
   Logger.log('PASTE THIS INTO Config.gs SPREADSHEET_ID: ' + ss.getId());

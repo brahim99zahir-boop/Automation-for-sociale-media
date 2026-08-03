@@ -16,8 +16,39 @@ is empty, link a Page first — every Instagram permission routes through it.
 This was assumed for a while and it is wrong. An app called **Automation** was created from
 Morocco with no business verification, no documents, no review.
 
-**Keep the app in Development Mode.** In that mode permissions apply to your own accounts,
-which is the entire use case here. App Review is only for acting on other people's accounts.
+### Development Mode is NOT enough — corrected 2 August 2026
+
+This file previously said Development Mode was sufficient because the app only touches
+your own account. **That is wrong, and it cost an evening to find out.**
+
+Development Mode grants **Standard Access**, which reaches data belonging to people who
+hold a role on the app. A comment on your post was written by a *customer*, and a DM was
+sent by a *customer*. That is their data, not yours, and under Standard Access it is
+filtered out of the response.
+
+What that looks like, exactly — and why it is so hard to diagnose:
+
+| Call | Result under Standard Access | Truth |
+|---|---|---|
+| `me` | works | your own data |
+| `me/media` | works, 50 posts | your own data |
+| `comments_count` on a post | says `33` | an aggregate, not the comments |
+| `<post>/comments` | `{"data":[],"paging":{...}}` | 33 comments, all filtered out |
+| `me/conversations` | `{"data":[]}` | same |
+
+The tell is **empty `data` with paging cursors still present**. An edge with genuinely
+nothing in it does not return a `next` link. Cursors plus no rows means the objects exist
+and every one was stripped.
+
+No error is raised. The run reports `0 new of 0 fetched` and looks perfectly healthy.
+
+**To read real customers you need Advanced Access**, which means completing **App Review**
+(box 5) for `instagram_business_manage_comments` and
+`instagram_business_manage_messages`. Adding the permissions in box 1 and minting a token
+only grants Standard Access to them.
+
+Until that is approved, use the paste sheet — see SETUP.md. It needs no Meta permission
+at all.
 
 ## Two routes — they are not interchangeable
 
