@@ -247,9 +247,9 @@ function maybePrivateReply_(msg, ai) {
  */
 function handleVoiceWithoutStt_(msg) {
   const reply = detectScript_(msg.text || 'واه') === 'arabic'
-    ? 'سلام. ما قدرناش نسمعو الفوكال من هنا. صيفط لينا القياس ديال الشباك كتابة، ولا ' +
+    ? 'سلام. ما قدرناش نسمعو الفوكال هنا. صيفط لينا القياس ديال الشباك كتابة، ولا ' +
       'ديريكت ف الواتساب ' + CONFIG.WHATSAPP_DISPLAY + ' ونعطيوك الثمن.'
-    : 'Salam. ma 9derna nsm3o lvocal mn hna. sift lina l9ias dyal chbak ktaba, wla ' +
+    : 'Salam. ma 9derna nsm3o lvocal hna. sift lina l9ias dyal chbak ktaba, wla ' +
       'direct f whatsapp ' + CONFIG.WHATSAPP_DISPLAY + ' o n3tiwk taman.';
 
   const ai = { reply: reply, client_type: 'أخرى', lead: 'دافئ' };
@@ -401,12 +401,18 @@ function priceBlock_(text) {
     'الموستكير بوحدو: ' + q.billedW + ' × ' + q.billedH + ' × ' + q.rate +
       ' = ' + q.screen + ' درهم',
   ];
-  if (q.twoPanel) lines.push('جوج بيبان (حيت القياس كبير): + ' + q.twoPanel + ' درهم');
-  if (q.install) lines.push('التركيب: + ' + q.install + ' درهم (الزبون فأكادير)');
+  if (q.twoPanel) lines.push('جوج بيبان: + ' + q.twoPanel + ' درهم');
+  if (q.install) lines.push('التركيب: + ' + q.install + ' درهم');
   lines.push('التوصيل: + ' + q.delivery + ' درهم لكل موستكير');
-  if (!q.install) lines.push('التركيب 150 درهم لكل موستكير. عرضو عليه إلا سولك');
   lines.push('المجموع: ' + q.total + ' درهم');
-  lines.push('هادا الثمن ديال موستكير واحد. إلا بغا كثر من واحد، كل واحد بوحدو.');
+  lines.push('هاد الثمن ديال موستكير واحد. إلا بغيتي كثر من واحد، كل واحد كيتحسب بوحدو.');
+  // Kept OUT of the quotable figures and clearly labelled. The model is told to copy this
+  // block verbatim, so a note written to staff would otherwise reach the customer — which
+  // is exactly what "عرضو عليه إلا سولك" used to do.
+  if (!q.install) {
+    lines.push('[ملاحظة ليك ماشي للزبون: هاد الزبون ماشي من أكادير. إلا سول على ' +
+               'التركيب، هو 150 درهم لكل موستكير]');
+  }
   return lines.join('\n');
 }
 

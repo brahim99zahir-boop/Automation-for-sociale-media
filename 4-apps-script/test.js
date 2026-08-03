@@ -384,6 +384,17 @@ const blk = priceBlock_('شرجم 200 على 120 وانا من اكادير');
 ok('price block carries the total', blk.indexOf('1530') !== -1, blk);
 ok('price block flags agadir install', blk.indexOf('التركيب') !== -1);
 ok('price block still charges delivery in agadir', blk.indexOf('التوصيل') !== -1);
+// A note written to staff must never sit among the figures the model is told to copy.
+// "عرضو عليه إلا سولك" used to, and a customer could have received it.
+ok('no staff instruction among the quotable figures',
+   blk.indexOf('عرضو عليه') === -1 && blk.indexOf('الزبون فأكادير') === -1, blk);
+const outside = priceBlock_('شرجم 200 على 150 من كازا');
+ok('the note for the owner is labelled as not for the customer',
+   outside.indexOf('[ملاحظة ليك ماشي للزبون') !== -1, outside);
+ok('the total comes before the per-screen note',
+   outside.indexOf('المجموع') < outside.indexOf('هاد الثمن ديال موستكير واحد'));
+ok('the customer is addressed directly, not in the third person',
+   outside.indexOf('إلا بغيتي') !== -1 && outside.indexOf('إلا بغا ') === -1);
 ok('no measurements -> empty block', priceBlock_('بشحال؟') === '');
 // Hard rule 4: no dashes, no tashkeel, no curly quotes, no ellipsis characters — every
 // one is an instant bot tell, and the model is told to copy this block verbatim.
