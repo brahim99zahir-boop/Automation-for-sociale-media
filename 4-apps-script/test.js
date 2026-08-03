@@ -385,6 +385,12 @@ ok('price block carries the total', blk.indexOf('1530') !== -1, blk);
 ok('price block flags agadir install', blk.indexOf('التركيب') !== -1);
 ok('price block still charges delivery in agadir', blk.indexOf('التوصيل') !== -1);
 ok('no measurements -> empty block', priceBlock_('بشحال؟') === '');
+// Hard rule 4: no dashes, no tashkeel, no curly quotes, no ellipsis characters — every
+// one is an instant bot tell, and the model is told to copy this block verbatim.
+ok('the price block carries no bot tells',
+   !/[—–…“”‘’\u064B-\u0652]/.test(blk), blk.match(/[—–…“”‘’\u064B-\u0652]/));
+ok('the agadir price block has no dashes either',
+   priceBlock_('شرجم 300 على 200 فاكادير').indexOf('—') === -1);
 
 console.log('\n== escalation, post context, voice, tokens ==');
 ok('hot lead escalates', worthEscalating_({ lead: 'ساخن', client_type: 'سؤال عام' }));

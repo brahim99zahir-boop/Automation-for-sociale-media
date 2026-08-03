@@ -1790,18 +1790,18 @@ function priceBlock_(text) {
   const q = quote_(dims.wCm, dims.hCm, detectType_(text), inAgadir);
 
   const lines = [
-    '[الثمن محسوب ليك — نقلو بحالو، ما تحسبش حتى حاجة بوحدك]',
+    '[الثمن محسوب ليك. نقلو بحالو، ما تحسبش حتى حاجة بوحدك]',
     'القياس: ' + q.wCm + ' × ' + q.hCm + ' سم' +
       ((q.wCm < PRICING.MIN_CM || q.hCm < PRICING.MIN_CM)
         ? ' (اللي أقل من 100 سم كيتحسب 100 سم)' : ''),
-    'النوع: ' + q.type + ' — ' + q.rate + ' درهم للمتر المربع',
+    'النوع: ' + q.type + '، ' + q.rate + ' درهم للمتر المربع',
     'الموستكير بوحدو: ' + q.billedW + ' × ' + q.billedH + ' × ' + q.rate +
       ' = ' + q.screen + ' درهم',
   ];
   if (q.twoPanel) lines.push('جوج بيبان (حيت القياس كبير): + ' + q.twoPanel + ' درهم');
   if (q.install) lines.push('التركيب: + ' + q.install + ' درهم (الزبون فأكادير)');
   lines.push('التوصيل: + ' + q.delivery + ' درهم لكل موستكير');
-  if (!q.install) lines.push('التركيب 150 درهم لكل موستكير — عرضو عليه إلا سولك');
+  if (!q.install) lines.push('التركيب 150 درهم لكل موستكير. عرضو عليه إلا سولك');
   lines.push('المجموع: ' + q.total + ' درهم');
   lines.push('هادا الثمن ديال موستكير واحد. إلا بغا كثر من واحد، كل واحد بوحدو.');
   return lines.join('\n');
