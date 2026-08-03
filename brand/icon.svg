@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Fiha Khir — icon</title>
+
+  <!--
+    THE PROFILE PICTURE. Use this one on Instagram, WhatsApp, Facebook and Google.
+
+    No text at all, on purpose. A profile picture is about 40 pixels wide on a phone,
+    and at 40px any word turns into a grey smudge. The platform already prints the name
+    next to the picture — the picture's whole job is to be recognisable, not to repeat it.
+
+    The mark is the product: a window frame with the mesh stretched across it, and one
+    square of that mesh picked out in yellow — the piece cut to measure.
+
+    Three flat colours, thick strokes, no gradient, no fine detail. Everything sits well
+    inside the circle that every platform crops to.
+  -->
+
+  <defs>
+    <clipPath id="weave">
+      <rect x="268" y="268" width="488" height="488" rx="24"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#FF0000"/>
+
+  <g clip-path="url(#weave)">
+    <!-- The mesh. Deliberately coarse: a realistic fine weave vanishes when small,
+         and what has to survive is the IDEA of a screen, not its thread count. -->
+    <g stroke="#FFFFFF" stroke-width="26" opacity="0.9">
+      <path d="M350 268V756M431 268V756M512 268V756M593 268V756M674 268V756"/>
+      <path d="M268 350H756M268 431H756M268 512H756M268 593H756M268 674H756"/>
+    </g>
+    <!-- One square, measured and cut to fit. The whole business in one shape. -->
+    <rect x="525" y="444" width="55" height="55" fill="#FFD400"/>
+  </g>
+
+  <!-- The frame goes on last so it reads as holding the mesh, not sitting behind it. -->
+  <rect x="268" y="268" width="488" height="488" rx="24"
+        fill="none" stroke="#FFFFFF" stroke-width="46"/>
+</svg>

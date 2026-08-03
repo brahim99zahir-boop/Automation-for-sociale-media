@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Fiha Khir — moustiquaire sur mesure, Agadir</title>
+
+  <!--
+    THE FULL LOCKUP. Use where the name is meant to be read: shop sign, van, business
+    card, the cover image on Google Business Profile, the end frame of a reel.
+
+    NOT for the profile picture — the text is unreadable at 40px. Use icon.svg there.
+
+    Everything sits inside the middle circle, because the platforms crop round.
+  -->
+
+  <defs>
+    <clipPath id="lockup-weave">
+      <rect x="404" y="176" width="216" height="216" rx="12"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#FF0000"/>
+
+  <!-- the mark -->
+  <g clip-path="url(#lockup-weave)">
+    <g stroke="#FFFFFF" stroke-width="14" opacity="0.9">
+      <path d="M440 176V392M476 176V392M512 176V392M548 176V392M584 176V392"/>
+      <path d="M404 212H620M404 248H620M404 284H620M404 320H620M404 356H620"/>
+    </g>
+    <rect x="512" y="284" width="36" height="36" fill="#FFD400"/>
+  </g>
+  <rect x="404" y="176" width="216" height="216" rx="12"
+        fill="none" stroke="#FFFFFF" stroke-width="26"/>
+
+  <!-- the name -->
+  <!-- Two words, with the space. "FihaKhir" reads as one invented word. -->
+  <text x="512" y="560"
+        font-family="Arial Black, Arial Bold, Helvetica, Arial, sans-serif"
+        font-size="128" font-weight="900" letter-spacing="1"
+        fill="#FFFFFF" text-anchor="middle">FIHA KHIR</text>
+
+  <!-- Arabic earns its place: customers search فيها خير, not the transliteration,
+       and 708 posts of recognition are attached to it. -->
+  <text x="512" y="672"
+        font-family="Tahoma, Segoe UI, Arial, sans-serif"
+        font-size="88" font-weight="bold"
+        fill="#FFFFFF" text-anchor="middle">فيها خير</text>
+
+  <!-- AGADIR, not MAROC. Nobody searches "moustiquaire Maroc"; the searches that
+       convert are local. Delivery being nationwide is a fact for the description,
+       not for the logo. -->
+  <text x="512" y="762"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="36" font-weight="bold" letter-spacing="8"
+        fill="#FFD400" text-anchor="middle">MOUSTIQUAIRE · AGADIR</text>
+</svg>
