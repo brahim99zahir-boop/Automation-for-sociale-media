@@ -49,17 +49,37 @@ scope. Indexing them and querying a graph costs more than a single `grep`. So: *
 graphify when a question genuinely spans many files.** Reaching for the heavier tool on a
 small repo is the opposite of lazy, and the owner asked for low cost.
 
-## Skills worth reaching for
+## Pick the right tool for the task — read this table, then stop looking
 
-| When | Skill |
-|---|---|
-| Writing or checking Darija | `darija` (built from this project's own corrected rules) |
-| Repo feels bloated | `ponytail-audit` |
-| Reviewing a change | `ponytail-review`, `code-review` |
-| Public endpoint, secrets | `security-review` |
-| Content strategy | `marketing-skills` |
+**Match the task to one row and use that.** Not "use every skill on everything": each one
+loaded costs tokens on every message and makes the right one less likely to fire. Best
+result and lowest cost are the same instruction — the right tool, once.
+
+| Task | Use | Not |
+|---|---|---|
+| Any Darija a customer reads | `darija` — **always**, no exceptions | writing it from memory |
+| Reviewing a change | `ponytail-review`, then `code-review` | eyeballing the diff |
+| Public endpoint, tokens, dashboard | `security-review` | |
+| Repo feels bloated | `ponytail-audit` | |
+| Model ids, pricing, caching, limits | `claude-api` — **never answer from memory** | recalling a price |
+| Replies reading as AI-written | `avoid-ai-writing`, `humanizer` | |
+| Google Business Profile, map pack, NAP, reviews | `localseoskills` | guessing at local SEO |
+| Ads, captions, content plan | `marketing-skills:copywriting` / `ad-creative` | |
+| Reading one known page | `WebFetch` | firecrawl for a single page |
+| Searching the web | `WebSearch` | a search plugin, this is built in |
+| Scraping many pages, crawling a site | `firecrawl` MCP | |
+| Driving a logged-in browser | `playwright` / `chrome-devtools` MCP | |
+| GitHub PRs, issues, files | `github` MCP | shelling out to `gh`, absent here |
+| Understanding a video | keyframes (below), or `higgsfield` `video_analysis_create` | sending every frame |
 
 Everything else installed is for domains this project doesn't have. Ignore it.
+
+**Video costs frames, not minutes.** Every frame is ~1000+ vision tokens, so a 30s reel at
+1fps is ~30,000. Pull keyframes only — usually 3-6 for a whole reel:
+
+```
+ffmpeg -i clip.mp4 -vf "select='eq(pict_type,I)'" -vsync vfr f_%02d.jpg
+```
 
 ## Hard rules — every one came from a real failure
 
