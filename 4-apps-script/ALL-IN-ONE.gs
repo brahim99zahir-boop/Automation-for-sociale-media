@@ -1644,10 +1644,10 @@ function maybePrivateReply_(msg, ai) {
  */
 function handleVoiceWithoutStt_(msg) {
   const reply = detectScript_(msg.text || 'واه') === 'arabic'
-    ? 'سلام. ما قدرناش نسمعو الفوكال هنا. صيفط لينا القياس ديال الشباك كتابة، ولا ' +
-      'ديريكت ف الواتساب ' + CONFIG.WHATSAPP_DISPLAY + ' ونعطيوك الثمن.'
-    : 'Salam. ma 9derna nsm3o lvocal hna. sift lina l9ias dyal chbak ktaba, wla ' +
-      'direct f whatsapp ' + CONFIG.WHATSAPP_DISPLAY + ' o n3tiwk taman.';
+    ? 'سلام. ما قدرناش نسمعو الفوكال. العادي 550 درهم للمتر. صيفط لينا القياس ' +
+      'كتابة ولا ف الواتساب ' + CONFIG.WHATSAPP_DISPLAY + '.'
+    : 'salam. ma 9derna nsm3o lvocal. l3adi 550 dh l metre. sift lina l9ias ' +
+      'ktaba wla f whatsapp ' + CONFIG.WHATSAPP_DISPLAY + '.';
 
   const ai = { reply: reply, client_type: 'أخرى', lead: 'دافئ' };
   logToSheet_(msg, ai, 'رسالة صوتية — طلبنا منو يكتب');

@@ -792,6 +792,24 @@ PLATFORMS.instagram.igUserId = '';
 delete H.props['META_ACCESS_TOKEN'];
 global.__ROUTES = {};
 
+console.log('\n== the voice reply follows the darija rules ==');
+// Fact, then reason, then number. A reply that only says "go to WhatsApp" reads as a
+// brush-off, and this one goes to someone who just recorded a question.
+const vAr = 'سلام. ما قدرناش نسمعو الفوكال. العادي 550 درهم للمتر. صيفط لينا القياس كتابة ولا ف الواتساب 0666567672.';
+const vLat = 'salam. ma 9derna nsm3o lvocal. l3adi 550 dh l metre. sift lina l9ias ktaba wla f whatsapp 0666567672.';
+ok('arabic reply gives a real fact before redirecting', vAr.indexOf('550') !== -1);
+ok('latin reply gives a real fact before redirecting', vLat.indexOf('550') !== -1);
+// Rule 4: money is درهم in Arabic script and dh in Arabizi. Never the other way round.
+ok('arabic uses درهم', vAr.indexOf('درهم') !== -1 && vAr.indexOf(' dh') === -1);
+ok('arabizi uses dh, not درهم', vLat.indexOf('dh') !== -1 && vLat.indexOf('درهم') === -1);
+// Rule 4: never mix alphabets inside a sentence — the most obvious bot tell there is.
+ok('no arabic letters inside the latin reply', !/[\u0600-\u06FF]/.test(vLat), vLat);
+// Rules 2 and 3: tashkeel, dashes, curly quotes and ellipsis are all instant tells.
+ok('no tashkeel or typographic characters in either',
+   !/[—–…“”‘’\u064B-\u0652]/.test(vAr + vLat));
+ok('both carry the right whatsapp number',
+   vAr.indexOf(CONFIG.WHATSAPP_DISPLAY) !== -1 && vLat.indexOf(CONFIG.WHATSAPP_DISPLAY) !== -1);
+
 console.log('\n== the paste tab (needs no Meta permission) ==');
 // Reading real customers needs Advanced Access, which needs App Review, which takes
 // weeks. Everything else works without it — so a comment pasted by hand gets answered.
