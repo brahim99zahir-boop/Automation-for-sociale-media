@@ -848,6 +848,49 @@ ok('the paste tab has its own headers',
 delete H.props['ANTHROPIC_API_KEY'];
 global.__ROUTES = {};
 
+console.log('\n== screenshots into the paste tab ==');
+// The owner will not verify the business, so Instagram will never hand this system a
+// comment. A screenshot of the comment list carries ten at once instead of typing them.
+H.props['ANTHROPIC_API_KEY'] = 'k';
+global.__DRIVE = [{ name: 'shot1.jpg', mime: 'image/jpeg' }];
+global.__DRIVE_DONE = [];
+global.__ROUTES = { 'api.anthropic.com': { body: { content: [{ text: JSON.stringify([
+  { author: 'zbon1', text: 'بشحال؟' },
+  { author: 'fiha_khir13', text: 'شكرا' },
+  { author: 'zbon2', text: 'chhal?' },
+]) }], usage: { input_tokens: 1600, output_tokens: 50 } } } };
+const pasteBefore = __PASTEDATA.length;
+checkScreenshots_();
+ok('comments from the picture reach the paste tab',
+   __PASTEDATA.length === pasteBefore + 2, __PASTEDATA.length - pasteBefore);
+ok('his own reply in the screenshot is skipped',
+   !__PASTEDATA.some(r => r[1] === 'fiha_khir13'));
+ok('the script of each comment is preserved',
+   __PASTEDATA[pasteBefore][0] === 'بشحال؟' && __PASTEDATA[pasteBefore + 1][0] === 'chhal?');
+ok('the picture is moved so it is never billed twice', __DRIVE_DONE.length === 1);
+
+// A picture that cannot be read must say so where he looks, not vanish.
+global.__DRIVE = [{ name: 'bad.jpg', mime: 'image/jpeg' }];
+global.__DRIVE_DONE = [];
+global.__ROUTES = { 'api.anthropic.com': { code: 500, body: 'boom' } };
+const failBefore = __PASTEDATA.length;
+checkScreenshots_();
+ok('an unreadable picture is reported in the sheet',
+   __PASTEDATA.length === failBefore + 1 &&
+   String(__PASTEDATA[failBefore][2]).indexOf('خطأ') === 0, __PASTEDATA[failBefore]);
+ok('and is still moved, so it cannot loop forever', __DRIVE_DONE.length === 1);
+
+// Non-images are left alone.
+global.__DRIVE = [{ name: 'notes.txt', mime: 'text/plain' }];
+global.__DRIVE_DONE = [];
+const txtBefore = __PASTEDATA.length;
+checkScreenshots_();
+ok('a non-image is ignored', __PASTEDATA.length === txtBefore && __DRIVE_DONE.length === 0);
+
+global.__DRIVE = [];
+delete H.props['ANTHROPIC_API_KEY'];
+global.__ROUTES = {};
+
 console.log('\n== housekeeping ==');
 H.props['usage_2020-01-01'] = JSON.stringify({ calls: 9, input: 1, output: 1 });
 pruneOldUsage_();

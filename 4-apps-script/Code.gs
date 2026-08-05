@@ -58,6 +58,13 @@ function checkEverything() {
     } catch (err) {
       notifyError_('checkSheetDecisions', err, '');
     }
+    // Screenshots first, so a picture dropped in the folder is answered in this same
+    // run rather than waiting five more minutes for the next one.
+    try {
+      checkScreenshots_();
+    } catch (err) {
+      notifyError_('checkScreenshots', err, '');
+    }
     // Anything pasted by hand. Works whether or not Meta has approved anything.
     try {
       checkPasteSheet_();
@@ -1095,6 +1102,80 @@ function applyOwnerReply_(pending, body) {
 
   if (!approvedAsIs) recordCorrection_(pending.reply, finalText);
   countReview_(!approvedAsIs);
+}
+
+// ---------------------------------------------------------------------------
+// SCREENSHOTS — a folder in Drive, and the replies come back
+//
+// The owner decided against business verification, so Instagram will never hand this
+// system a comment. Typing them in one at a time works but is a chore, and a chore
+// stops getting done. A phone screenshot of the comment list carries ten of them at
+// once, and reading an image is something this can already do.
+//
+// Drop a screenshot in the folder. On the next run every comment in it is pulled out
+// and answered in the لصق tab. Roughly 1600 vision tokens a picture — about two
+// centimes — for what would otherwise be ten minutes of typing.
+// ---------------------------------------------------------------------------
+
+const SHOTS_FOLDER = 'لقطات فيها خير';
+const SHOTS_DONE = 'تمت';
+
+/** The watched folder, created on first use. */
+function shotsFolder_() {
+  const it = DriveApp.getFoldersByName(SHOTS_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(SHOTS_FOLDER);
+}
+
+/** Where a picture goes once it has been read, so it is never charged for twice. */
+function shotsDoneFolder_(parent) {
+  const it = parent.getFoldersByName(SHOTS_DONE);
+  return it.hasNext() ? it.next() : parent.createFolder(SHOTS_DONE);
+}
+
+/**
+ * Reads every new screenshot and writes the comments it finds into the لصق tab.
+ *
+ * Capped per run: an Apps Script execution dies at six minutes, and a vision call is
+ * the slowest thing here. Whatever is left stays in the folder for the next run.
+ */
+function checkScreenshots_() {
+  if (!CONFIG.SPREADSHEET_ID || !hasSecret_(PROP.ANTHROPIC_KEY)) return;
+
+  const folder = shotsFolder_();
+  const done = shotsDoneFolder_(folder);
+  const files = folder.getFiles();
+  const sh = pasteSheet_();
+  let handled = 0, found = 0;
+
+  while (files.hasNext() && handled < CONFIG.MAX_SHOTS_PER_RUN) {
+    const file = files.next();
+    const type = String(file.getMimeType() || '');
+    if (type.indexOf('image/') !== 0) continue;      // ignore anything that is not a picture
+
+    try {
+      const items = extractCommentsFromImage_(
+        Utilities.base64Encode(file.getBlob().getBytes()), type);
+      for (const c of (items || [])) {
+        const text = String((c && c.text) || '').trim();
+        if (!text) continue;
+        // His own replies are in the screenshot too. Answering them would be absurd.
+        if (isOwnComment_(c.author)) continue;
+        sh.appendRow([text, String((c && c.author) || '').trim(), '', '', '']);
+        found++;
+      }
+      file.moveTo(done);            // read once, moved, never billed again
+    } catch (err) {
+      // Leave the file where it is and say so in the sheet — a picture that failed
+      // silently is a customer never answered.
+      Logger.log('Screenshot failed: ' + file.getName() + ' — ' + err);
+      sh.appendRow(['(ما قدرناش نقراو التصويرة: ' + file.getName() + ')', '',
+                    'خطأ: ' + String(err).slice(0, 200), '', '']);
+      file.moveTo(done);
+    }
+    handled++;
+  }
+
+  if (handled) Logger.log('Screenshots: read ' + handled + ', found ' + found + ' comments.');
 }
 
 // ---------------------------------------------------------------------------

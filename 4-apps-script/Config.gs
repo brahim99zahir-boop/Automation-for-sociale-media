@@ -60,6 +60,9 @@ const CONFIG = {
   // would be lost silently. Whatever is left is simply picked up on the next run.
   MAX_PER_RUN: 15,
 
+  // Vision calls are the slowest thing in a run, so fewer of them per execution.
+  MAX_SHOTS_PER_RUN: 5,
+
   // A public reply to a months-old comment reads as spam to the customer and to
   // Instagram, and mass-replying to old threads is what gets accounts restricted.
   // Anything older than this is logged as a lead for you to contact yourself, never

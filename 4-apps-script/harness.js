@@ -21,6 +21,7 @@ global.PropertiesService = {
 global.Utilities = {
   getUuid: () => require('crypto').randomUUID(),   // real 36-char UUID, like Apps Script
   sleep: () => {},
+  base64Encode: b => Buffer.from(b).toString('base64'),
   formatDate: (d, tz, fmt) => {
     const p = n => String(n).padStart(2, '0');
     const s = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
@@ -124,6 +125,30 @@ global.__EMAILS = EMAILS;
 global.MailApp = {
   getRemainingDailyQuota: () => (global.__QUOTA === undefined ? 100 : global.__QUOTA),
 };
+// Drive stub. Tests put images in global.__DRIVE as [{name, mime, bytes}]; a file that
+// is "moved" lands in global.__DRIVE_DONE.
+global.__DRIVE = [];
+global.__DRIVE_DONE = [];
+const mkFile = (f) => ({
+  getName: () => f.name,
+  getMimeType: () => f.mime,
+  getBlob: () => ({ getBytes: () => f.bytes || [1, 2, 3] }),
+  moveTo: () => { global.__DRIVE_DONE.push(f); },
+});
+const mkFolder = () => ({
+  getFiles: () => {
+    let i = 0;
+    return { hasNext: () => i < global.__DRIVE.length,
+             next: () => mkFile(global.__DRIVE[i++]) };
+  },
+  getFoldersByName: () => ({ hasNext: () => true, next: () => mkFolder() }),
+  createFolder: () => mkFolder(),
+});
+global.DriveApp = {
+  getFoldersByName: () => ({ hasNext: () => true, next: () => mkFolder() }),
+  createFolder: () => mkFolder(),
+};
+
 global.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
 // Scriptable HTTP stub. Tests set global.__ROUTES = {urlSubstring: {code, body}}.
 const mkRes = (code, body) => ({
